@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS device_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  device_id INTEGER NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+  tag TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);

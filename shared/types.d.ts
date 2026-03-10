@@ -1,0 +1,316 @@
+export type DeviceType = 'server' | 'workstation' | 'router' | 'switch' | 'nas' | 'firewall' | 'access_point' | 'iot' | 'camera' | 'phone';
+export declare const DEVICE_TYPE_LABELS: Record<DeviceType, string>;
+export type CommandType = 'ps' | 'netstat' | 'last' | 'ip_a' | 'mount' | 'ip_r' | 'freeform' | 'systemctl_status';
+export type ConnectionType = 'ethernet' | 'wifi' | 'vpn' | 'fiber' | 'serial';
+export type HostingType = 'baremetal' | 'vm' | 'hypervisor';
+export interface Subnet {
+    id: number;
+    name: string;
+    cidr: string;
+    vlan_id: number | null;
+    description: string | null;
+    created_at: string;
+    updated_at: string;
+}
+export interface Device {
+    id: number;
+    name: string;
+    type: DeviceType;
+    mac_address: string | null;
+    os: string | null;
+    location: string | null;
+    notes: string | null;
+    subnet_id: number | null;
+    hosting_type: HostingType | null;
+    hypervisor_id: number | null;
+    created_at: string;
+    updated_at: string;
+}
+export interface DeviceIp {
+    id: number;
+    device_id: number;
+    ip_address: string;
+    label: string | null;
+    is_primary: number;
+}
+export interface DeviceWithIps extends Device {
+    ips: DeviceIp[];
+    tags: string[];
+    subnet_name?: string | null;
+    primary_ip?: string | null;
+    hypervisor_name?: string | null;
+    vms?: {
+        id: number;
+        name: string;
+        type: string;
+        os: string | null;
+        primary_ip: string | null;
+    }[];
+}
+export interface Connection {
+    id: number;
+    source_device_id: number;
+    target_device_id: number;
+    label: string | null;
+    connection_type: string;
+    source_handle: string | null;
+    target_handle: string | null;
+    edge_color: string | null;
+    edge_width: number | null;
+    label_color: string | null;
+    label_bg_color: string | null;
+    created_at: string;
+}
+export interface CommandOutput {
+    id: number;
+    device_id: number;
+    command_type: CommandType;
+    raw_output: string;
+    captured_at: string;
+    title: string | null;
+}
+export interface ParsedProcess {
+    id: number;
+    output_id: number;
+    pid: number;
+    user: string;
+    cpu_percent: number;
+    mem_percent: number;
+    command: string;
+}
+export interface ParsedNetConnection {
+    id: number;
+    output_id: number;
+    protocol: string;
+    local_addr: string;
+    foreign_addr: string;
+    state: string;
+    pid_program: string;
+}
+export interface ParsedLogin {
+    id: number;
+    output_id: number;
+    user: string;
+    terminal: string;
+    source_ip: string;
+    login_time: string;
+    duration: string;
+}
+export interface ParsedInterface {
+    id: number;
+    output_id: number;
+    interface_name: string;
+    state: string;
+    ip_addresses: string;
+    mac_address: string;
+}
+export interface ParsedMount {
+    id: number;
+    output_id: number;
+    device: string;
+    mount_point: string;
+    fs_type: string;
+    options: string;
+}
+export interface ParsedRoute {
+    id: number;
+    output_id: number;
+    destination: string;
+    gateway: string;
+    device: string;
+    protocol: string;
+    scope: string;
+    metric: string;
+}
+export interface ParsedService {
+    id: number;
+    output_id: number;
+    unit_name: string;
+    load: string;
+    active: string;
+    sub: string;
+    description: string;
+}
+export interface CommandOutputWithParsed extends CommandOutput {
+    parsed_processes?: ParsedProcess[];
+    parsed_connections?: ParsedNetConnection[];
+    parsed_logins?: ParsedLogin[];
+    parsed_interfaces?: ParsedInterface[];
+    parsed_mounts?: ParsedMount[];
+    parsed_routes?: ParsedRoute[];
+    parsed_services?: ParsedService[];
+}
+export interface DiagramDeviceNode {
+    id: number;
+    name: string;
+    type: DeviceType;
+    primary_ip: string | null;
+    os: string | null;
+    subnet_id: number | null;
+    hosting_type: HostingType | null;
+    mac_address: string | null;
+    location: string | null;
+    notes: string | null;
+    ips: {
+        ip_address: string;
+        label: string | null;
+        is_primary: number;
+    }[];
+    x: number;
+    y: number;
+    has_credentials: boolean;
+}
+export interface DiagramSubnetNode {
+    id: number;
+    name: string;
+    cidr: string;
+    vlan_id: number | null;
+    description: string | null;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+export interface SubnetMembership {
+    device_id: number;
+    subnet_id: number;
+}
+export interface NodePrefs {
+    borderColor?: string;
+    bgColor?: string;
+    icon?: string;
+    favourite?: boolean;
+    borderStyle?: string;
+    borderRadius?: string;
+    borderWidth?: string;
+}
+export interface LegendItem {
+    icon: string;
+    label: string;
+}
+export interface DiagramData {
+    devices: DiagramDeviceNode[];
+    subnets: DiagramSubnetNode[];
+    connections: Connection[];
+    subnet_memberships: SubnetMembership[];
+    node_preferences: Record<string, NodePrefs>;
+    legend_items: LegendItem[];
+}
+export interface CreateDeviceRequest {
+    name: string;
+    type: DeviceType;
+    mac_address?: string;
+    os?: string;
+    location?: string;
+    notes?: string;
+    subnet_id?: number | null;
+    hosting_type?: HostingType | null;
+    hypervisor_id?: number | null;
+    ips?: {
+        ip_address: string;
+        label?: string;
+        is_primary?: boolean;
+    }[];
+    tags?: string[];
+}
+export interface CreateSubnetRequest {
+    name: string;
+    cidr: string;
+    vlan_id?: number;
+    description?: string;
+}
+export interface CreateConnectionRequest {
+    source_device_id: number;
+    target_device_id: number;
+    label?: string;
+    connection_type?: string;
+    source_handle?: string;
+    target_handle?: string;
+}
+export interface SubmitCommandOutputRequest {
+    command_type: CommandType;
+    raw_output: string;
+    title?: string;
+}
+export interface AppSettings {
+    timezone: string;
+}
+export interface UpdatePositionsRequest {
+    devices?: {
+        id: number;
+        x: number;
+        y: number;
+    }[];
+    subnets?: {
+        id: number;
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    }[];
+}
+export interface HighlightRule {
+    id: number;
+    keyword: string;
+    category: string;
+    color: string;
+    text_color: string | null;
+    created_at: string;
+}
+export declare const CREDENTIAL_TYPES: readonly ["SSH", "RDP", "HTTP", "SNMP", "SQL", "VPN", "SSH Key", "Other"];
+export type CredentialType = typeof CREDENTIAL_TYPES[number];
+export interface Credential {
+    id: number;
+    device_id: number | null;
+    host: string | null;
+    username: string;
+    password: string | null;
+    type: string | null;
+    source: string | null;
+    file_name: string | null;
+    created_at: string;
+    updated_at: string;
+}
+export interface CredentialWithDevice extends Credential {
+    device_name: string | null;
+    has_file: boolean;
+}
+export interface CreateCredentialRequest {
+    device_id?: number | null;
+    host?: string;
+    username: string;
+    password?: string;
+    type?: string;
+    source?: string;
+    file_name?: string;
+    file_data?: string;
+}
+export interface ProjectStats {
+    device_count: number;
+    favourite_count: number;
+    subnet_count: number;
+    credential_count: number;
+}
+export interface Project {
+    id: number;
+    name: string;
+    slug: string;
+    description: string | null;
+    about_title: string | null;
+    device_count?: number;
+    subnet_count?: number;
+    created_at: string;
+    updated_at: string;
+}
+export interface CreateProjectRequest {
+    name: string;
+    slug: string;
+    description?: string;
+}
+export interface UpdateProjectRequest {
+    name?: string;
+    slug?: string;
+    description?: string;
+    about_title?: string;
+}
+//# sourceMappingURL=types.d.ts.map

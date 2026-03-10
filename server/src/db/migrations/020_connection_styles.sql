@@ -1,0 +1,4 @@
+ALTER TABLE connections ADD COLUMN edge_color TEXT DEFAULT NULL;
+ALTER TABLE connections ADD COLUMN edge_width INTEGER DEFAULT NULL;
+ALTER TABLE connections ADD COLUMN label_color TEXT DEFAULT NULL;
+ALTER TABLE connections ADD COLUMN label_bg_color TEXT DEFAULT NULL;
