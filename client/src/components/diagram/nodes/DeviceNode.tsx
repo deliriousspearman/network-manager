@@ -1,20 +1,27 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
-import { Server, Monitor, Router, Network, HardDrive, Shield, Wifi, Cpu, Camera, Smartphone } from 'lucide-react';
-import type { LucideProps } from 'lucide-react';
 
-type IconComponent = React.ComponentType<LucideProps>;
+import serverIcon from '../../../assets/device-icons/server.svg?url';
+import workstationIcon from '../../../assets/device-icons/workstation.svg?url';
+import routerIcon from '../../../assets/device-icons/router.svg?url';
+import switchIcon from '../../../assets/device-icons/switch.svg?url';
+import nasIcon from '../../../assets/device-icons/nas.svg?url';
+import firewallIcon from '../../../assets/device-icons/firewall.svg?url';
+import accessPointIcon from '../../../assets/device-icons/access_point.svg?url';
+import iotIcon from '../../../assets/device-icons/iot.svg?url';
+import cameraIcon from '../../../assets/device-icons/camera.svg?url';
+import phoneIcon from '../../../assets/device-icons/phone.svg?url';
 
-const DEVICE_ICONS: Record<string, IconComponent> = {
-  server:       Server,
-  workstation:  Monitor,
-  router:       Router,
-  switch:       Network,
-  nas:          HardDrive,
-  firewall:     Shield,
-  access_point: Wifi,
-  iot:          Cpu,
-  camera:       Camera,
-  phone:        Smartphone,
+const DEFAULT_DEVICE_ICONS: Record<string, string> = {
+  server: serverIcon,
+  workstation: workstationIcon,
+  router: routerIcon,
+  switch: switchIcon,
+  nas: nasIcon,
+  firewall: firewallIcon,
+  access_point: accessPointIcon,
+  iot: iotIcon,
+  camera: cameraIcon,
+  phone: phoneIcon,
 };
 
 const CLASS_MAP: Record<string, string> = {
@@ -47,13 +54,16 @@ export default function DeviceNode({ data }: NodeProps) {
     bgColor?: string | null;
     labelColor?: string | null;
     customIcon?: string | null;
+    iconOverrideUrl?: string | null;
+    typeDefaultIconUrl?: string | null;
     favourite?: boolean;
     hideHandles?: boolean;
     hasCredentials?: boolean;
     showCredentials?: boolean;
+    status?: string | null;
   };
   const vmClass = d.hostingType === 'vm' ? ' node-vm' : '';
-  const IconComponent = DEVICE_ICONS[d.deviceType];
+  const iconSrc = d.iconOverrideUrl || d.typeDefaultIconUrl || DEFAULT_DEVICE_ICONS[d.deviceType];
 
   const style: React.CSSProperties = {};
   if (d.borderColor) style.borderColor = d.borderColor;
@@ -64,12 +74,11 @@ export default function DeviceNode({ data }: NodeProps) {
     <div className={`device-node ${CLASS_MAP[d.deviceType] || ''}${vmClass}${d.hideHandles ? ' hide-handles' : ''}`} style={style}>
       {d.favourite && <div className="node-favourite">⭐</div>}
       {!!d.hasCredentials && d.showCredentials !== false && <div className="node-credentials">🔑</div>}
+      {d.status && <div className={`node-status node-status-${d.status}`} title={`Status: ${d.status}`} />}
       <div className="node-icon">
         {d.customIcon
           ? d.customIcon
-          : IconComponent
-            ? <IconComponent size={22} />
-            : <span>?</span>
+          : <img src={iconSrc} alt={d.deviceType} width={22} height={22} style={{ objectFit: 'contain' }} draggable={false} />
         }
       </div>
       <div className="node-label" style={labelStyle}>{d.label}</div>

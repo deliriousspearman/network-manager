@@ -20,7 +20,7 @@ A web application for inventorying network devices (servers, workstations, route
 
 ```bash
 # Clone the repo
-git clone https://example.com
+git clone https://gitlab.example.com/user/network-manager.git
 cd network-manager
 
 # Install dependencies
@@ -52,7 +52,7 @@ nvm install 20
 ### 2. Clone and build
 
 ```bash
-git clone https://example.com
+git clone https://gitlab.example.com/user/network-manager.git
 cd network-manager
 npm install
 npm run build

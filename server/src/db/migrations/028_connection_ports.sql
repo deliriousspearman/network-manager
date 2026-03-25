@@ -1,0 +1,2 @@
+ALTER TABLE connections ADD COLUMN source_port TEXT DEFAULT NULL;
+ALTER TABLE connections ADD COLUMN target_port TEXT DEFAULT NULL;

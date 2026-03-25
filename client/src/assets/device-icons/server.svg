@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Server rack body -->
+  <rect x="10" y="8" width="44" height="48" rx="3"/>
+  <!-- Drive bays -->
+  <rect x="15" y="13" width="34" height="10" rx="1"/>
+  <rect x="15" y="27" width="34" height="10" rx="1"/>
+  <rect x="15" y="41" width="34" height="10" rx="1"/>
+  <!-- Drive indicators -->
+  <circle cx="21" cy="18" r="1.5" fill="currentColor"/>
+  <circle cx="21" cy="32" r="1.5" fill="currentColor"/>
+  <circle cx="21" cy="46" r="1.5" fill="currentColor"/>
+  <!-- Drive lines -->
+  <line x1="27" y1="18" x2="44" y2="18"/>
+  <line x1="27" y1="32" x2="44" y2="32"/>
+  <line x1="27" y1="46" x2="44" y2="46"/>
+</svg>

@@ -4,6 +4,11 @@ import { logActivity } from '../db/activityLog.js';
 
 const router = Router({ mergeParams: true });
 
+/** Build parameterized IN clause: returns { ph: '?,?,?', params: [1,2,3] } */
+function inParams(ids: number[]) {
+  return { ph: ids.map(() => '?').join(','), params: ids };
+}
+
 router.get('/export', (_req, res) => {
   const includeCommandOutputs = _req.query.includeCommandOutputs !== 'false';
   const includeCredentials = _req.query.includeCredentials !== 'false';
@@ -19,12 +24,12 @@ router.get('/export', (_req, res) => {
     data = {
       subnets: db.prepare('SELECT * FROM subnets WHERE project_id = ?').all(projectId),
       devices: db.prepare('SELECT * FROM devices WHERE project_id = ?').all(projectId),
-      device_ips: deviceIds.length ? db.prepare(`SELECT * FROM device_ips WHERE device_id IN (${deviceIds.join(',')})`).all() : [],
-      device_tags: deviceIds.length ? db.prepare(`SELECT * FROM device_tags WHERE device_id IN (${deviceIds.join(',')})`).all() : [],
-      device_subnets: deviceIds.length ? db.prepare(`SELECT * FROM device_subnets WHERE device_id IN (${deviceIds.join(',')})`).all() : [],
+      device_ips: deviceIds.length ? db.prepare(`SELECT * FROM device_ips WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
+      device_tags: deviceIds.length ? db.prepare(`SELECT * FROM device_tags WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
+      device_subnets: deviceIds.length ? db.prepare(`SELECT * FROM device_subnets WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
       connections: db.prepare('SELECT * FROM connections WHERE project_id = ?').all(projectId),
-      diagram_positions: deviceIds.length ? db.prepare(`SELECT * FROM diagram_positions WHERE device_id IN (${deviceIds.join(',')})`).all() : [],
-      subnet_diagram_positions: subnetIds.length ? db.prepare(`SELECT * FROM subnet_diagram_positions WHERE subnet_id IN (${subnetIds.join(',')})`).all() : [],
+      diagram_positions: deviceIds.length ? db.prepare(`SELECT * FROM diagram_positions WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
+      subnet_diagram_positions: subnetIds.length ? db.prepare(`SELECT * FROM subnet_diagram_positions WHERE subnet_id IN (${inParams(subnetIds).ph})`).all(...subnetIds) : [],
       highlight_rules: db.prepare('SELECT * FROM highlight_rules WHERE project_id = ?').all(projectId),
       command_outputs: includeCommandOutputs ? db.prepare('SELECT * FROM command_outputs WHERE project_id = ?').all(projectId) : [],
       parsed_processes: [],
@@ -35,19 +40,22 @@ router.get('/export', (_req, res) => {
       parsed_routes: [],
       parsed_services: [],
       credentials: includeCredentials ? db.prepare('SELECT * FROM credentials WHERE project_id = ?').all(projectId) : [],
+      device_type_icons: db.prepare('SELECT * FROM device_type_icons WHERE project_id = ?').all(projectId),
+      device_icon_overrides: deviceIds.length ? db.prepare(`SELECT * FROM device_icon_overrides WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
+      diagram_images: db.prepare('SELECT * FROM diagram_images WHERE project_id = ?').all(projectId),
     };
 
     if (includeCommandOutputs) {
       const outputIds = (data.command_outputs as any[]).map(o => o.id);
       if (outputIds.length) {
-        const inClause = outputIds.join(',');
-        data.parsed_processes = db.prepare(`SELECT * FROM parsed_processes WHERE output_id IN (${inClause})`).all();
-        data.parsed_connections = db.prepare(`SELECT * FROM parsed_connections WHERE output_id IN (${inClause})`).all();
-        data.parsed_logins = db.prepare(`SELECT * FROM parsed_logins WHERE output_id IN (${inClause})`).all();
-        data.parsed_interfaces = db.prepare(`SELECT * FROM parsed_interfaces WHERE output_id IN (${inClause})`).all();
-        data.parsed_mounts = db.prepare(`SELECT * FROM parsed_mounts WHERE output_id IN (${inClause})`).all();
-        data.parsed_routes = db.prepare(`SELECT * FROM parsed_routes WHERE output_id IN (${inClause})`).all();
-        data.parsed_services = db.prepare(`SELECT * FROM parsed_services WHERE output_id IN (${inClause})`).all();
+        const { ph } = inParams(outputIds);
+        data.parsed_processes = db.prepare(`SELECT * FROM parsed_processes WHERE output_id IN (${ph})`).all(...outputIds);
+        data.parsed_connections = db.prepare(`SELECT * FROM parsed_connections WHERE output_id IN (${ph})`).all(...outputIds);
+        data.parsed_logins = db.prepare(`SELECT * FROM parsed_logins WHERE output_id IN (${ph})`).all(...outputIds);
+        data.parsed_interfaces = db.prepare(`SELECT * FROM parsed_interfaces WHERE output_id IN (${ph})`).all(...outputIds);
+        data.parsed_mounts = db.prepare(`SELECT * FROM parsed_mounts WHERE output_id IN (${ph})`).all(...outputIds);
+        data.parsed_routes = db.prepare(`SELECT * FROM parsed_routes WHERE output_id IN (${ph})`).all(...outputIds);
+        data.parsed_services = db.prepare(`SELECT * FROM parsed_services WHERE output_id IN (${ph})`).all(...outputIds);
       }
     }
   } else {
@@ -72,6 +80,9 @@ router.get('/export', (_req, res) => {
       parsed_routes: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_routes').all() : [],
       parsed_services: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_services').all() : [],
       credentials: includeCredentials ? db.prepare('SELECT * FROM credentials').all() : [],
+      device_type_icons: db.prepare('SELECT * FROM device_type_icons').all(),
+      device_icon_overrides: db.prepare('SELECT * FROM device_icon_overrides').all(),
+      diagram_images: db.prepare('SELECT * FROM diagram_images').all(),
     };
   }
 
@@ -107,6 +118,36 @@ router.post('/import', (req, res) => {
 
   const { data } = backup;
 
+  // Validate backup structure: ensure arrays are arrays and truncate oversized strings
+  const arrayKeys = ['subnets', 'devices', 'device_ips', 'device_tags', 'device_subnets', 'connections',
+    'diagram_positions', 'subnet_diagram_positions', 'highlight_rules', 'command_outputs',
+    'parsed_processes', 'parsed_connections', 'parsed_logins', 'parsed_interfaces',
+    'parsed_mounts', 'parsed_routes', 'parsed_services', 'credentials', 'projects',
+    'device_type_icons', 'device_icon_overrides', 'diagram_images'];
+  for (const key of arrayKeys) {
+    if (data[key] !== undefined && !Array.isArray(data[key])) {
+      res.status(400).json({ error: `data.${key} must be an array` });
+      return;
+    }
+  }
+
+  // Sanitize all string values in imported data: truncate to 10000 chars max
+  const MAX_STR = 10000;
+  function sanitizeRow(row: any) {
+    if (!row || typeof row !== 'object') return row;
+    for (const [k, v] of Object.entries(row)) {
+      if (typeof v === 'string' && v.length > MAX_STR) {
+        row[k] = v.slice(0, MAX_STR);
+      }
+    }
+    return row;
+  }
+  for (const key of arrayKeys) {
+    if (Array.isArray(data[key])) {
+      data[key] = data[key].map(sanitizeRow);
+    }
+  }
+
   try {
     db.transaction(() => {
       if (projectId) {
@@ -116,28 +157,32 @@ router.post('/import', (req, res) => {
         const outputIds = (db.prepare('SELECT id FROM command_outputs WHERE project_id = ?').all(projectId) as { id: number }[]).map(r => r.id);
 
         if (outputIds.length) {
-          const inClause = outputIds.join(',');
-          db.prepare(`DELETE FROM parsed_processes WHERE output_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM parsed_connections WHERE output_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM parsed_logins WHERE output_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM parsed_interfaces WHERE output_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM parsed_mounts WHERE output_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM parsed_routes WHERE output_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM parsed_services WHERE output_id IN (${inClause})`).run();
+          const { ph } = inParams(outputIds);
+          db.prepare(`DELETE FROM parsed_processes WHERE output_id IN (${ph})`).run(...outputIds);
+          db.prepare(`DELETE FROM parsed_connections WHERE output_id IN (${ph})`).run(...outputIds);
+          db.prepare(`DELETE FROM parsed_logins WHERE output_id IN (${ph})`).run(...outputIds);
+          db.prepare(`DELETE FROM parsed_interfaces WHERE output_id IN (${ph})`).run(...outputIds);
+          db.prepare(`DELETE FROM parsed_mounts WHERE output_id IN (${ph})`).run(...outputIds);
+          db.prepare(`DELETE FROM parsed_routes WHERE output_id IN (${ph})`).run(...outputIds);
+          db.prepare(`DELETE FROM parsed_services WHERE output_id IN (${ph})`).run(...outputIds);
         }
         db.prepare('DELETE FROM command_outputs WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM credentials WHERE project_id = ?').run(projectId);
         if (deviceIds.length) {
-          const inClause = deviceIds.join(',');
-          db.prepare(`DELETE FROM diagram_positions WHERE device_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM device_subnets WHERE device_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM device_tags WHERE device_id IN (${inClause})`).run();
-          db.prepare(`DELETE FROM device_ips WHERE device_id IN (${inClause})`).run();
+          const { ph } = inParams(deviceIds);
+          db.prepare(`DELETE FROM diagram_positions WHERE device_id IN (${ph})`).run(...deviceIds);
+          db.prepare(`DELETE FROM device_subnets WHERE device_id IN (${ph})`).run(...deviceIds);
+          db.prepare(`DELETE FROM device_tags WHERE device_id IN (${ph})`).run(...deviceIds);
+          db.prepare(`DELETE FROM device_ips WHERE device_id IN (${ph})`).run(...deviceIds);
         }
         if (subnetIds.length) {
-          db.prepare(`DELETE FROM subnet_diagram_positions WHERE subnet_id IN (${subnetIds.join(',')})`).run();
+          const { ph } = inParams(subnetIds);
+          db.prepare(`DELETE FROM subnet_diagram_positions WHERE subnet_id IN (${ph})`).run(...subnetIds);
         }
         db.prepare('DELETE FROM connections WHERE project_id = ?').run(projectId);
+        db.prepare('DELETE FROM device_type_icons WHERE project_id = ?').run(projectId);
+        db.prepare('DELETE FROM device_icon_overrides WHERE project_id = ?').run(projectId);
+        db.prepare('DELETE FROM diagram_images WHERE project_id = ?').run(projectId);
         db.prepare('UPDATE devices SET hypervisor_id = NULL WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM devices WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM subnets WHERE project_id = ?').run(projectId);
@@ -163,6 +208,9 @@ router.post('/import', (req, res) => {
         db.prepare('DELETE FROM devices').run();
         db.prepare('DELETE FROM subnets').run();
         db.prepare('DELETE FROM highlight_rules').run();
+        db.prepare('DELETE FROM device_type_icons').run();
+        db.prepare('DELETE FROM device_icon_overrides').run();
+        db.prepare('DELETE FROM diagram_images').run();
         db.prepare('DELETE FROM projects').run();
       }
 
@@ -302,13 +350,34 @@ router.post('/import', (req, res) => {
           stmt.run(row.id, row.device_id ?? null, row.host ?? null, row.username, row.password ?? null, row.type ?? null, row.source ?? null, projectId ?? row.project_id ?? targetProjectId, row.created_at, row.updated_at);
         }
       }
+
+      if (data.device_type_icons?.length) {
+        const stmt = db.prepare('INSERT INTO device_type_icons (id, project_id, device_type, filename, mime_type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.device_type_icons) {
+          stmt.run(row.id, projectId ?? row.project_id ?? targetProjectId, row.device_type, row.filename, row.mime_type, row.data, row.created_at);
+        }
+      }
+
+      if (data.device_icon_overrides?.length) {
+        const stmt = db.prepare('INSERT INTO device_icon_overrides (id, device_id, project_id, filename, mime_type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.device_icon_overrides) {
+          stmt.run(row.id, row.device_id, projectId ?? row.project_id ?? targetProjectId, row.filename, row.mime_type, row.data, row.created_at);
+        }
+      }
+
+      if (data.diagram_images?.length) {
+        const stmt = db.prepare('INSERT INTO diagram_images (id, project_id, x, y, width, height, filename, mime_type, data, label, view_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.diagram_images) {
+          stmt.run(row.id, projectId ?? row.project_id ?? targetProjectId, row.x, row.y, row.width, row.height, row.filename, row.mime_type, row.data, row.label ?? null, row.view_id ?? null, row.created_at);
+        }
+      }
     })();
 
     logActivity({ projectId: projectId ?? null, action: 'imported', resourceType: 'backup', details: { scope: projectId ? 'project' : 'full-site', version: backup.version } });
     res.json({ success: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Import failed';
-    res.status(500).json({ error: message });
+    console.error('Backup import error:', err);
+    res.status(500).json({ error: 'Import failed' });
   }
 });
 

@@ -3,8 +3,29 @@ import { useConfirmDialog } from '../ui/ConfirmDialog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchHighlightRules, createHighlightRule, deleteHighlightRule } from '../../api/highlightRules';
 import { exportBackup, importBackup } from '../../api/backup';
+import { fetchTypeDefaults, typeDefaultIconUrl, uploadTypeDefault, deleteTypeDefault } from '../../api/diagramIcons';
 import { useProject } from '../../contexts/ProjectContext';
-import type { HighlightRule } from 'shared/types';
+import type { HighlightRule, DeviceType } from 'shared/types';
+import { DEVICE_TYPE_LABELS } from 'shared/types';
+
+import serverIcon from '../../assets/device-icons/server.svg?url';
+import workstationIcon from '../../assets/device-icons/workstation.svg?url';
+import routerIcon from '../../assets/device-icons/router.svg?url';
+import switchIcon from '../../assets/device-icons/switch.svg?url';
+import nasIcon from '../../assets/device-icons/nas.svg?url';
+import firewallIcon from '../../assets/device-icons/firewall.svg?url';
+import accessPointIcon from '../../assets/device-icons/access_point.svg?url';
+import iotIcon from '../../assets/device-icons/iot.svg?url';
+import cameraIcon from '../../assets/device-icons/camera.svg?url';
+import phoneIcon from '../../assets/device-icons/phone.svg?url';
+
+const DEFAULT_ICONS: Record<string, string> = {
+  server: serverIcon, workstation: workstationIcon, router: routerIcon, switch: switchIcon,
+  nas: nasIcon, firewall: firewallIcon, access_point: accessPointIcon, iot: iotIcon,
+  camera: cameraIcon, phone: phoneIcon,
+};
+
+const ALL_DEVICE_TYPES: DeviceType[] = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone'];
 
 export default function SettingsPage() {
   const { projectId } = useProject();
@@ -15,6 +36,40 @@ export default function SettingsPage() {
   const [color, setColor] = useState('#fef9c3');
   const [textColor, setTextColor] = useState('');
   const [useTextColor, setUseTextColor] = useState(false);
+
+  const iconInputRef = useRef<HTMLInputElement>(null);
+  const [iconUploadType, setIconUploadType] = useState<string | null>(null);
+
+  const { data: typeDefaults = [] } = useQuery({
+    queryKey: ['type-default-icons', projectId],
+    queryFn: () => fetchTypeDefaults(projectId),
+  });
+  const customTypeSet = new Set(typeDefaults.map(t => t.device_type));
+
+  const uploadIconMut = useMutation({
+    mutationFn: ({ deviceType, payload }: { deviceType: string; payload: { filename: string; mime_type: string; data: string } }) =>
+      uploadTypeDefault(projectId, deviceType, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['type-default-icons', projectId] }),
+  });
+
+  const deleteIconMut = useMutation({
+    mutationFn: (deviceType: string) => deleteTypeDefault(projectId, deviceType),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['type-default-icons', projectId] }),
+  });
+
+  function handleIconUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const deviceType = iconUploadType;
+    if (!file || !deviceType) return;
+    e.target.value = '';
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      uploadIconMut.mutate({ deviceType, payload: { filename: file.name, mime_type: file.type, data: base64 } });
+    };
+    reader.readAsDataURL(file);
+  }
 
   const [inclCmdOutputs, setInclCmdOutputs] = useState(true);
   const [inclCredentials, setInclCredentials] = useState(true);
@@ -164,6 +219,44 @@ export default function SettingsPage() {
               <p style={{ marginTop: '0.5rem', fontSize: '0.875rem', color: 'var(--color-success, #16a34a)' }}>Restore complete.</p>
             )}
           </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: '1.5rem' }}>
+        <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>Default Device Icons</h3>
+        <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
+          Customise the default icon used for each device type on the network diagram. Upload an image (max 512 KB) to replace the built-in icon, or reset to restore the default.
+        </p>
+        <input ref={iconInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIconUpload} />
+        <div className="settings-icon-grid">
+          {ALL_DEVICE_TYPES.map(dt => {
+            const hasCustom = customTypeSet.has(dt);
+            const src = hasCustom ? typeDefaultIconUrl(projectId, dt) + `?t=${Date.now()}` : DEFAULT_ICONS[dt];
+            return (
+              <div key={dt} className="settings-icon-card">
+                <img src={src} alt={dt} className="settings-icon-preview" draggable={false} />
+                <div className="settings-icon-label">{DEVICE_TYPE_LABELS[dt]}</div>
+                <div className="settings-icon-actions">
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => { setIconUploadType(dt); iconInputRef.current?.click(); }}
+                    disabled={uploadIconMut.isPending}
+                  >
+                    Upload
+                  </button>
+                  {hasCustom && (
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={async () => { if (await confirm(`Reset ${DEVICE_TYPE_LABELS[dt]} icon to default?`)) deleteIconMut.mutate(dt); }}
+                      disabled={deleteIconMut.isPending}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
 

@@ -52,6 +52,18 @@ router.post('/', (req, res) => {
     res.status(400).json({ error: 'name and slug are required' });
     return;
   }
+  if (name.trim().length > 200) {
+    res.status(400).json({ error: 'name must be at most 200 characters' });
+    return;
+  }
+  if (slug.trim().length > 100) {
+    res.status(400).json({ error: 'slug must be at most 100 characters' });
+    return;
+  }
+  if (description && description.length > 50000) {
+    res.status(400).json({ error: 'description must be at most 50000 characters' });
+    return;
+  }
   const slugPattern = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
   if (!slugPattern.test(slug)) {
     res.status(400).json({ error: 'slug must be lowercase alphanumeric with dashes only' });

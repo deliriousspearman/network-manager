@@ -12,6 +12,7 @@ import SettingsPage from './components/settings/SettingsPage';
 import CredentialList from './components/credentials/CredentialList';
 import CredentialForm from './components/credentials/CredentialForm';
 import AdminSettingsPage from './components/admin/AdminSettingsPage';
+import AdminLogsPage from './components/admin/AdminLogsPage';
 import AppShell from './components/layout/AppShell';
 import OverviewPage from './components/overview/OverviewPage';
 import LogsPage from './components/logs/LogsPage';
@@ -22,8 +23,9 @@ export default function App() {
       {/* Root redirect to last-used project */}
       <Route path="/" element={<ProjectRedirect />} />
 
-      {/* Admin Settings (outside project context) */}
+      {/* Admin routes (outside project context) */}
       <Route path="/admin" element={<AppShell><AdminSettingsPage /></AppShell>} />
+      <Route path="/admin/logs" element={<AppShell><AdminLogsPage /></AppShell>} />
 
       {/* Project-scoped routes */}
       <Route path="/p/:projectSlug" element={<ProjectLayout />}>

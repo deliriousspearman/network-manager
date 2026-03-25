@@ -192,7 +192,7 @@ export default function CredentialList() {
             <tbody>
               {sorted.map((c: CredentialWithDevice) => (
                 <tr key={c.id}>
-                  <td>{c.device_id ? <Link to={`${base}/devices/${c.device_id}`}>{c.device_name}</Link> : '—'}</td>
+                  <td>{c.device_id ? <Link className="credential-file-link" to={`${base}/devices/${c.device_id}`}>{c.device_name}</Link> : '—'}</td>
                   <td>{c.host || '—'}</td>
                   <td>{c.username}</td>
                   <td>{c.password || '—'}</td>

@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- NAS body -->
+  <rect x="12" y="6" width="40" height="52" rx="3"/>
+  <!-- Drive bays -->
+  <rect x="17" y="12" width="30" height="8" rx="1"/>
+  <rect x="17" y="24" width="30" height="8" rx="1"/>
+  <rect x="17" y="36" width="30" height="8" rx="1"/>
+  <!-- Drive handles -->
+  <line x1="28" y1="14" x2="36" y2="14"/>
+  <line x1="28" y1="26" x2="36" y2="26"/>
+  <line x1="28" y1="38" x2="36" y2="38"/>
+  <!-- LEDs -->
+  <circle cx="22" cy="52" r="1.5" fill="currentColor"/>
+  <circle cx="28" cy="52" r="1.5"/>
+  <!-- Power button -->
+  <circle cx="42" cy="52" r="2.5"/>
+</svg>

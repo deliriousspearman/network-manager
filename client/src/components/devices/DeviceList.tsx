@@ -76,6 +76,7 @@ export default function DeviceList() {
                 <th style={thStyle} onClick={() => handleSort('os')}>OS <SortIcon col="os" /></th>
                 <th style={thStyle} onClick={() => handleSort('subnet_name')}>Subnet <SortIcon col="subnet_name" /></th>
                 <th>Tags</th>
+                <th style={{ textAlign: 'center' }}>AV</th>
                 <th style={{ textAlign: 'center' }}>Creds</th>
               </tr>
             </thead>
@@ -95,6 +96,7 @@ export default function DeviceList() {
                       </div>
                     )}
                   </td>
+                  <td style={{ textAlign: 'center' }}>{d.av ? '🛡️' : ''}</td>
                   <td style={{ textAlign: 'center' }}>{d.credential_count ? '🔑' : ''}</td>
                 </tr>
               ))}

@@ -38,8 +38,38 @@ export interface Device {
   subnet_id: number | null;
   hosting_type: HostingType | null;
   hypervisor_id: number | null;
+  section_config: string | null;
+  rich_notes: string | null;
+  av: string | null;
+  status: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface DeviceImage {
+  id: number;
+  device_id: number;
+  filename: string;
+  mime_type: string;
+  created_at: string;
+}
+
+export interface DeviceAttachment {
+  id: number;
+  device_id: number;
+  filename: string;
+  mime_type: string;
+  size: number;
+  created_at: string;
+}
+
+export interface DevicePort {
+  id: number;
+  device_id: number;
+  port_number: number;
+  state: string;
+  service: string | null;
+  created_at: string;
 }
 
 export interface DeviceIp {
@@ -62,12 +92,17 @@ export interface DeviceWithIps extends Device {
 
 export interface Connection {
   id: number;
-  source_device_id: number;
-  target_device_id: number;
+  source_device_id: number | null;
+  target_device_id: number | null;
+  source_subnet_id: number | null;
+  target_subnet_id: number | null;
   label: string | null;
   connection_type: string;
+  edge_type: string;
   source_handle: string | null;
   target_handle: string | null;
+  source_port: string | null;
+  target_port: string | null;
   edge_color: string | null;
   edge_width: number | null;
   label_color: string | null;
@@ -179,6 +214,7 @@ export interface DiagramDeviceNode {
   x: number;
   y: number;
   has_credentials: boolean;
+  status: string | null;
 }
 
 export interface DiagramSubnetNode {
@@ -214,6 +250,40 @@ export interface LegendItem {
   label: string;
 }
 
+export interface DiagramView {
+  id: number;
+  project_id: number;
+  name: string;
+  is_default: number;
+  created_at: string;
+}
+
+export interface DiagramAnnotation {
+  id: number;
+  project_id: number;
+  x: number;
+  y: number;
+  text: string;
+  font_size: number;
+  color: string | null;
+  view_id: number | null;
+  created_at: string;
+}
+
+export interface DiagramImage {
+  id: number;
+  project_id: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  filename: string;
+  mime_type: string;
+  label: string | null;
+  view_id: number | null;
+  created_at: string;
+}
+
 export interface DiagramData {
   devices: DiagramDeviceNode[];
   subnets: DiagramSubnetNode[];
@@ -221,6 +291,12 @@ export interface DiagramData {
   subnet_memberships: SubnetMembership[];
   node_preferences: Record<string, NodePrefs>;
   legend_items: LegendItem[];
+  annotations: DiagramAnnotation[];
+  views: DiagramView[];
+  current_view_id: number;
+  device_icon_overrides: number[];
+  type_default_icons: string[];
+  diagram_images: DiagramImage[];
 }
 
 // API request types
@@ -236,6 +312,10 @@ export interface CreateDeviceRequest {
   hypervisor_id?: number | null;
   ips?: { ip_address: string; label?: string; is_primary?: boolean }[];
   tags?: string[];
+  section_config?: string;
+  rich_notes?: string;
+  av?: string;
+  status?: string;
 }
 
 export interface CreateSubnetRequest {
@@ -246,12 +326,16 @@ export interface CreateSubnetRequest {
 }
 
 export interface CreateConnectionRequest {
-  source_device_id: number;
-  target_device_id: number;
+  source_device_id?: number;
+  target_device_id?: number;
+  source_subnet_id?: number;
+  target_subnet_id?: number;
   label?: string;
   connection_type?: string;
   source_handle?: string;
   target_handle?: string;
+  source_port?: string;
+  target_port?: string;
 }
 
 export interface SubmitCommandOutputRequest {
@@ -262,6 +346,13 @@ export interface SubmitCommandOutputRequest {
 
 export interface AppSettings {
   timezone: string;
+  notification_enabled?: string;
+  notification_text?: string;
+  notification_bg_color?: string;
+  notification_text_color?: string;
+  notification_height?: string;
+  notification_font_size?: string;
+  notification_bold?: string;
 }
 
 export interface UpdatePositionsRequest {

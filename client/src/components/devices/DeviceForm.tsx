@@ -1,15 +1,39 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { GripVertical } from 'lucide-react';
 import { fetchDevice, createDevice, updateDevice, fetchHypervisors } from '../../api/devices';
 import { fetchSubnets } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
 import type { DeviceType, HostingType } from 'shared/types';
 
+const DEFAULT_SECTION_ORDER = ['overview', 'credentials', 'ports', 'notes', 'gallery', 'attachments', 'command_outputs'];
+
+const SECTION_LABELS: Record<string, string> = {
+  overview: 'Overview',
+  credentials: 'Credentials',
+  ports: 'Ports',
+  notes: 'Notes',
+  gallery: 'Image Gallery',
+  attachments: 'Attachments',
+  command_outputs: 'Command Outputs',
+};
+
 interface IpEntry {
   ip_address: string;
   label: string;
   is_primary: boolean;
+}
+
+interface SectionConfig {
+  overview: boolean;
+  credentials: boolean;
+  command_outputs: boolean;
+  gallery: boolean;
+  attachments: boolean;
+  ports: boolean;
+  notes: boolean;
+  order: string[];
 }
 
 export default function DeviceForm() {
@@ -26,12 +50,24 @@ export default function DeviceForm() {
   const [os, setOs] = useState('');
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
+  const [av, setAv] = useState('');
+  const [status, setStatus] = useState('');
   const [subnetId, setSubnetId] = useState<number | null>(null);
   const [hostingType, setHostingType] = useState<HostingType | null>(null);
   const [hypervisorId, setHypervisorId] = useState<number | null>(null);
   const [ips, setIps] = useState<IpEntry[]>([{ ip_address: '', label: '', is_primary: true }]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  const [sectionConfig, setSectionConfig] = useState<SectionConfig>({
+    overview: true,
+    credentials: true,
+    command_outputs: false,
+    gallery: false,
+    attachments: false,
+    ports: false,
+    notes: false,
+    order: DEFAULT_SECTION_ORDER,
+  });
 
   const { data: subnets } = useQuery({ queryKey: ['subnets', projectId], queryFn: () => fetchSubnets(projectId) });
   const { data: hypervisors } = useQuery({ queryKey: ['hypervisors', projectId], queryFn: () => fetchHypervisors(projectId) });
@@ -49,6 +85,8 @@ export default function DeviceForm() {
       setOs(device.os || '');
       setLocation(device.location || '');
       setNotes(device.notes || '');
+      setAv(device.av || '');
+      setStatus(device.status || '');
       setSubnetId(device.subnet_id);
       setHostingType(device.hosting_type);
       setHypervisorId(device.hypervisor_id);
@@ -62,6 +100,24 @@ export default function DeviceForm() {
       if (device.tags?.length) {
         setTags(device.tags);
       }
+      if (device.section_config) {
+        try {
+          const cfg = JSON.parse(device.section_config);
+          setSectionConfig({
+            overview: cfg.overview !== false,
+            credentials: cfg.credentials !== false,
+            command_outputs: cfg.command_outputs === true,
+            gallery: cfg.gallery === true,
+            attachments: cfg.attachments === true,
+            ports: cfg.ports === true,
+            notes: cfg.notes === true,
+            order: (() => {
+              const stored: string[] = cfg.order?.length ? cfg.order : DEFAULT_SECTION_ORDER;
+              return [...DEFAULT_SECTION_ORDER.filter(k => !stored.includes(k)), ...stored];
+            })(),
+          });
+        } catch { /* keep defaults */ }
+      }
     }
   }, [device]);
 
@@ -69,6 +125,7 @@ export default function DeviceForm() {
     mutationFn: (data: any) => isEdit ? updateDevice(projectId, Number(id), data) : createDevice(projectId, data),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['devices', projectId] });
+      queryClient.invalidateQueries({ queryKey: ['device', projectId, result.id] });
       navigate(`${base}/devices/${result.id}`);
     },
   });
@@ -92,6 +149,20 @@ export default function DeviceForm() {
     setTagInput('');
   };
 
+  const dragIndex = useRef<number | null>(null);
+
+  const handleDragStart = (idx: number) => { dragIndex.current = idx; };
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    if (dragIndex.current === null || dragIndex.current === idx) return;
+    const newOrder = [...sectionConfig.order];
+    const [item] = newOrder.splice(dragIndex.current, 1);
+    newOrder.splice(idx, 0, item);
+    dragIndex.current = idx;
+    setSectionConfig(prev => ({ ...prev, order: newOrder }));
+  };
+  const handleDragEnd = () => { dragIndex.current = null; };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     mutation.mutate({
@@ -105,6 +176,9 @@ export default function DeviceForm() {
       hypervisor_id: type === 'server' && hostingType === 'vm' ? hypervisorId : null,
       ips: ips.filter(ip => ip.ip_address),
       tags,
+      av: av || undefined,
+      status: status || undefined,
+      section_config: JSON.stringify(sectionConfig),
     });
   };
 
@@ -158,6 +232,23 @@ export default function DeviceForm() {
             <select value={subnetId ?? ''} onChange={e => setSubnetId(e.target.value ? Number(e.target.value) : null)}>
               <option value="">None</option>
               {subnets?.map(s => <option key={s.id} value={s.id}>{s.name} ({s.cidr})</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label>AV Software</label>
+            <input value={av} onChange={e => setAv(e.target.value)} placeholder="e.g. CrowdStrike Falcon" />
+          </div>
+          <div className="form-group">
+            <label>Status</label>
+            <select value={status} onChange={e => setStatus(e.target.value)}>
+              <option value="">Not set</option>
+              <option value="up">Up</option>
+              <option value="down">Down</option>
+              <option value="warning">Warning</option>
+              <option value="unknown">Unknown</option>
             </select>
           </div>
         </div>
@@ -255,6 +346,38 @@ export default function DeviceForm() {
             style={{ maxWidth: 280 }}
           />
         </div>
+
+        <fieldset style={{ border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem 1rem', marginTop: '0.5rem' }}>
+          <legend style={{ fontSize: '0.85rem', fontWeight: 600, padding: '0 0.4rem' }}>Sections</legend>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+            {sectionConfig.order.map((key, idx) => {
+              const isCommandOutputs = key === 'command_outputs';
+              if (isCommandOutputs && type !== 'server') return null;
+              const checked = sectionConfig[key as keyof SectionConfig] as boolean;
+              return (
+                <div
+                  key={key}
+                  draggable
+                  onDragStart={() => handleDragStart(idx)}
+                  onDragOver={e => handleDragOver(e, idx)}
+                  onDragEnd={handleDragEnd}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'grab', userSelect: 'none' }}
+                >
+                  <GripVertical size={14} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      style={{ width: 'auto' }}
+                      checked={checked}
+                      onChange={e => setSectionConfig(prev => ({ ...prev, [key]: e.target.checked }))}
+                    />
+                    {SECTION_LABELS[key] ?? key}
+                  </label>
+                </div>
+              );
+            })}
+          </div>
+        </fieldset>
 
         <div className="actions" style={{ marginTop: '1rem' }}>
           <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>

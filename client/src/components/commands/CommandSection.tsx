@@ -25,6 +25,16 @@ const COMMAND_LABELS: Record<CommandType, string> = {
   freeform: 'Notes',
 };
 
+const COMMAND_HINTS: Partial<Record<CommandType, string>> = {
+  ps: 'ps aux',
+  netstat: 'netstat -tulpn',
+  last: 'last',
+  ip_a: 'ip a',
+  mount: 'mount',
+  ip_r: 'ip r',
+  systemctl_status: 'systemctl list-units --type=service',
+};
+
 const COMMAND_TYPES = Object.keys(COMMAND_LABELS) as CommandType[];
 
 function formatTimestamp(capturedAt: string, title: string | null, timezone = 'UTC'): string {
@@ -191,7 +201,7 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
                 value={rawInput}
                 onChange={e => setRawInput(e.target.value)}
                 rows={8}
-                placeholder={`Paste the output of "${COMMAND_LABELS[activeTab]}" here...`}
+                placeholder={`Paste the output of "${COMMAND_HINTS[activeTab] ?? COMMAND_LABELS[activeTab]}" here...`}
                 style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
               />
             </div>

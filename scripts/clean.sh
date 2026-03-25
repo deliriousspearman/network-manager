@@ -16,37 +16,21 @@ if [[ "$confirm" != "yes" ]]; then
   exit 0
 fi
 
-# Check if running as a systemd service
-if systemctl is-active --quiet network-manager 2>/dev/null; then
-  echo "Stopping systemd service network-manager..."
-  sudo systemctl stop network-manager
-  rm -f "$DB_DIR/network.db" "$DB_DIR/network.db-shm" "$DB_DIR/network.db-wal"
-  echo "Database removed."
-  echo "Starting systemd service network-manager..."
-  sudo systemctl start network-manager
+# Check if running as a systemd user service
+SERVICE_RUNNING=false
+if systemctl --user is-active --quiet network-manager 2>/dev/null; then
+  SERVICE_RUNNING=true
+  echo "Stopping systemd user service network-manager..."
+  systemctl --user stop network-manager
+fi
+
+rm -f "$DB_DIR/network.db" "$DB_DIR/network.db-shm" "$DB_DIR/network.db-wal"
+echo "Database removed."
+
+if [[ "$SERVICE_RUNNING" == "true" ]]; then
+  echo "Starting systemd user service network-manager..."
+  systemctl --user start network-manager
   echo "Done. The app is running with a fresh empty database."
 else
-  # Dev mode: kill any running dev server process and restart it
-  rm -f "$DB_DIR/network.db" "$DB_DIR/network.db-shm" "$DB_DIR/network.db-wal"
-  echo "Database removed."
-
-  # Try to find and kill a running dev server on port 3001
-  SERVER_PID=$(lsof -ti :3001 2>/dev/null || true)
-  if [[ -n "$SERVER_PID" ]]; then
-    echo "Stopping server (PID $SERVER_PID)..."
-    kill "$SERVER_PID"
-    sleep 1
-  fi
-
-  echo "Starting dev server..."
-  cd "$ROOT_DIR"
-  # Source nvm if available
-  if [[ -f "$HOME/.nvm/nvm.sh" ]]; then
-    export NVM_DIR="$HOME/.nvm"
-    # shellcheck source=/dev/null
-    . "$NVM_DIR/nvm.sh"
-  fi
-  nohup npm run dev:server > "$ROOT_DIR/server/data/server.log" 2>&1 &
-  echo "Dev server started (PID $!). Log: server/data/server.log"
-  echo "Done. The app will show an empty database."
+  echo "Done. Start the service with: systemctl --user start network-manager"
 fi

@@ -1,4 +1,4 @@
-import { NodeResizer, type NodeProps } from '@xyflow/react';
+import { NodeResizer, Handle, Position, type NodeProps } from '@xyflow/react';
 
 const BORDER_STYLE_MAP: Record<string, string> = { solid: 'solid', dashed: 'dashed', dotted: 'dotted' };
 const BORDER_RADIUS_MAP: Record<string, string> = { square: '0px', small: '4px', rounded: '12px', pill: '24px' };
@@ -28,6 +28,15 @@ export default function SubnetGroupNode({ data, selected }: NodeProps) {
         {d.favourite && <span style={{ marginRight: '0.3rem' }}>⭐</span>}
         {d.label} ({d.cidr})
       </div>
+      {/* Connection handles for subnet-to-subnet edges */}
+      <Handle id="subnet-top-t" type="target" position={Position.Top} style={{ left: '50%' }} />
+      <Handle id="subnet-top-s" type="source" position={Position.Top} style={{ left: '50%' }} />
+      <Handle id="subnet-bot-t" type="target" position={Position.Bottom} style={{ left: '50%' }} />
+      <Handle id="subnet-bot-s" type="source" position={Position.Bottom} style={{ left: '50%' }} />
+      <Handle id="subnet-lft-t" type="target" position={Position.Left} style={{ top: '50%' }} />
+      <Handle id="subnet-lft-s" type="source" position={Position.Left} style={{ top: '50%' }} />
+      <Handle id="subnet-rgt-t" type="target" position={Position.Right} style={{ top: '50%' }} />
+      <Handle id="subnet-rgt-s" type="source" position={Position.Right} style={{ top: '50%' }} />
     </div>
   );
 }

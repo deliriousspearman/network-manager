@@ -1,7 +1,11 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
+import { sanitizeFilename, requireString, optionalString, optionalOneOf } from '../validation.js';
 import type { CreateCredentialRequest } from 'shared/types.js';
+
+const MAX_CREDENTIAL_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const CREDENTIAL_TYPES = ['SSH', 'RDP', 'HTTP', 'SNMP', 'SQL', 'VPN', 'SSH Key', 'Other'];
 
 const router = Router({ mergeParams: true });
 
@@ -43,7 +47,7 @@ router.get('/:id/file', (req, res) => {
     res.status(404).json({ error: 'File not found' });
     return;
   }
-  res.setHeader('Content-Disposition', `attachment; filename="${row.file_name}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${sanitizeFilename(row.file_name)}"`);
   res.setHeader('Content-Type', 'application/octet-stream');
   res.send(row.file_data);
 });
@@ -56,13 +60,18 @@ router.post('/', (req, res) => {
     return;
   }
   const fileBuffer = file_data ? Buffer.from(file_data, 'base64') : null;
+  if (fileBuffer && fileBuffer.length > MAX_CREDENTIAL_FILE_SIZE) {
+    res.status(400).json({ error: 'File exceeds 5 MB limit' });
+    return;
+  }
+  const safeFileName = file_name ? sanitizeFilename(file_name) : null;
   const result = db.prepare(
     `INSERT INTO credentials (device_id, host, username, password, type, source, file_name, file_data, project_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
-    device_id ?? null, host?.trim() || null, username.trim(), password?.trim() || null,
-    type?.trim() || null, source?.trim() || null,
-    file_name?.trim() || null, fileBuffer,
+    device_id ?? null, optionalString(host, 500), requireString(username, 'username', 200), optionalString(password, 500),
+    optionalOneOf(type, CREDENTIAL_TYPES), optionalString(source, 500),
+    safeFileName, fileBuffer,
     projectId
   );
   const credential = db.prepare(`${listSelect} WHERE c.id = ?`).get(result.lastInsertRowid);
@@ -82,15 +91,25 @@ router.put('/:id', (req, res) => {
     res.status(404).json({ error: 'Credential not found' });
     return;
   }
+  const validUser = requireString(username, 'username', 200);
+  const validHost = optionalString(host, 500);
+  const validPass = optionalString(password, 500);
+  const validType = optionalOneOf(type, CREDENTIAL_TYPES);
+  const validSource = optionalString(source, 500);
+
   // If file_data is provided, update file fields; if file_name is explicitly empty string, clear file
   if (file_data) {
     const fileBuffer = Buffer.from(file_data, 'base64');
+    if (fileBuffer.length > MAX_CREDENTIAL_FILE_SIZE) {
+      res.status(400).json({ error: 'File exceeds 5 MB limit' });
+      return;
+    }
     db.prepare(
       `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, file_name=?, file_data=?, updated_at=datetime('now') WHERE id=?`
     ).run(
-      device_id ?? null, host?.trim() || null, username.trim(), password?.trim() || null,
-      type?.trim() || null, source?.trim() || null,
-      file_name?.trim() || null, fileBuffer,
+      device_id ?? null, validHost, validUser, validPass,
+      validType, validSource,
+      file_name ? sanitizeFilename(file_name) : null, fileBuffer,
       req.params.id
     );
   } else if (file_name === '') {
@@ -98,8 +117,8 @@ router.put('/:id', (req, res) => {
     db.prepare(
       `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, file_name=NULL, file_data=NULL, updated_at=datetime('now') WHERE id=?`
     ).run(
-      device_id ?? null, host?.trim() || null, username.trim(), password?.trim() || null,
-      type?.trim() || null, source?.trim() || null,
+      device_id ?? null, validHost, validUser, validPass,
+      validType, validSource,
       req.params.id
     );
   } else {
@@ -107,8 +126,8 @@ router.put('/:id', (req, res) => {
     db.prepare(
       `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, updated_at=datetime('now') WHERE id=?`
     ).run(
-      device_id ?? null, host?.trim() || null, username.trim(), password?.trim() || null,
-      type?.trim() || null, source?.trim() || null,
+      device_id ?? null, validHost, validUser, validPass,
+      validType, validSource,
       req.params.id
     );
   }

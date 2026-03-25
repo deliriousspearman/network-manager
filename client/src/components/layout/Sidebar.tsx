@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { ProjectContext } from '../../contexts/ProjectContext';
 import { fetchProjects } from '../../api/projects';
+import ProjectSwitcher from './ProjectSwitcher';
 
 function getInitialTheme(): 'light' | 'dark' {
   const stored = localStorage.getItem('theme');
@@ -64,7 +65,7 @@ export default function Sidebar() {
     { to: `${basePath}/credentials`, label: 'Credentials', icon: KeyRound },
     { to: `${basePath}/diagram`, label: 'Network Diagram', icon: GitFork },
     { to: `${basePath}/settings`, label: 'Project Settings', icon: Settings },
-    { to: `${basePath}/logs`, label: 'Logs', icon: ScrollText },
+    { to: `${basePath}/logs`, label: 'Project Logs', icon: ScrollText },
   ];
 
   function switchProject(slug: string) {
@@ -87,29 +88,11 @@ export default function Sidebar() {
 
       {/* Project switcher */}
       {!collapsed && projects.length > 0 && (
-        <select
-          value={projectSlug || ''}
-          onChange={e => switchProject(e.target.value)}
-          style={{
-            width: '100%',
-            boxSizing: 'border-box',
-            padding: '0.5rem 0.75rem',
-            background: 'var(--color-bg-secondary, var(--color-bg))',
-            border: 'none',
-            borderTop: '1px solid var(--color-border)',
-            borderBottom: '1px solid var(--color-border)',
-            borderRadius: 0,
-            color: 'var(--color-text)',
-            fontSize: '0.85rem',
-            fontWeight: 500,
-            cursor: 'pointer',
-            outline: 'none',
-          }}
-        >
-          {projects.map(p => (
-            <option key={p.id} value={p.slug}>{p.name}</option>
-          ))}
-        </select>
+        <ProjectSwitcher
+          projects={projects}
+          currentSlug={projectSlug || ''}
+          onSwitch={switchProject}
+        />
       )}
       {collapsed && projects.length > 0 && (
         <div style={{ padding: '0 0.5rem', marginBottom: '0.5rem' }}>
@@ -151,13 +134,23 @@ export default function Sidebar() {
             {collapsed ? <span className="nav-tooltip">{label}</span> : <span>{label}</span>}
           </NavLink>
         ))}
-        <NavLink
-          to="/admin"
-          className={({ isActive }) => `nav-bottom${isActive ? ' active' : ''}`}
-        >
-          <Wrench size={18} />
-          {collapsed ? <span className="nav-tooltip">Admin Settings</span> : <span>Admin Settings</span>}
-        </NavLink>
+        <div className="nav-bottom-group">
+          <NavLink
+            to="/admin"
+            end
+            className={({ isActive }) => isActive ? 'active' : ''}
+          >
+            <Wrench size={18} />
+            {collapsed ? <span className="nav-tooltip">Admin Settings</span> : <span>Admin Settings</span>}
+          </NavLink>
+          <NavLink
+            to="/admin/logs"
+            className={({ isActive }) => isActive ? 'active' : ''}
+          >
+            <ScrollText size={18} />
+            {collapsed ? <span className="nav-tooltip">Admin Logs</span> : <span>Admin Logs</span>}
+          </NavLink>
+        </div>
       </nav>
 
       <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? 'Dark Mode' : 'Light Mode'}>

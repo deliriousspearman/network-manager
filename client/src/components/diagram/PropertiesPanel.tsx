@@ -14,7 +14,7 @@ interface Props {
   onClose: () => void;
   nodePrefs: NodePrefs;
   onPrefChange: (key: keyof NodePrefs, value: any) => void;
-  onConnectionUpdate?: (connId: number, data: { label?: string | null; connection_type?: string; edge_type?: string; edge_color?: string | null; edge_width?: number | null; label_color?: string | null; label_bg_color?: string | null; source_handle?: string | null; target_handle?: string | null }) => void;
+  onConnectionUpdate?: (connId: number, data: { label?: string | null; connection_type?: string; edge_type?: string; edge_color?: string | null; edge_width?: number | null; label_color?: string | null; label_bg_color?: string | null; source_handle?: string | null; target_handle?: string | null; source_port?: string | null; target_port?: string | null }) => void;
   projectBase?: string;
 }
 
@@ -384,7 +384,10 @@ const EDGE_WIDTH_OPTIONS = [
 
 function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionUpdate?: (connId: number, data: any) => void }) {
   const [label, setLabel] = useState(data.label || '');
+  const [sourcePort, setSourcePort] = useState(data.sourcePort || '');
+  const [targetPort, setTargetPort] = useState(data.targetPort || '');
   const labelTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const portTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const handleTypeChange = (newType: string) => {
     if (data.connId && onConnectionUpdate) {
@@ -396,6 +399,17 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
     if (data.connId && onConnectionUpdate) {
       onConnectionUpdate(data.connId, { edge_type: newEdgeType });
     }
+  };
+
+  const handlePortChange = (field: 'source_port' | 'target_port', value: string) => {
+    if (field === 'source_port') setSourcePort(value);
+    else setTargetPort(value);
+    if (portTimer.current) clearTimeout(portTimer.current);
+    portTimer.current = setTimeout(() => {
+      if (data.connId && onConnectionUpdate) {
+        onConnectionUpdate(data.connId, { [field]: value || null });
+      }
+    }, 500);
   };
 
   const handleLabelChange = (value: string) => {
@@ -418,6 +432,26 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
       <div className="props-section">
         <div className="props-label">Target</div>
         <div>{data.targetName}</div>
+      </div>
+
+      <div className="props-section">
+        <div className="props-label">Source Port</div>
+        <input
+          type="text"
+          value={sourcePort}
+          onChange={e => handlePortChange('source_port', e.target.value)}
+          placeholder="e.g. eth0, ge-0/0/1"
+        />
+      </div>
+
+      <div className="props-section">
+        <div className="props-label">Target Port</div>
+        <input
+          type="text"
+          value={targetPort}
+          onChange={e => handlePortChange('target_port', e.target.value)}
+          placeholder="e.g. eth1, ge-0/0/2"
+        />
       </div>
 
       <div className="props-section">

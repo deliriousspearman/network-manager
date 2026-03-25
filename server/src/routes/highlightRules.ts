@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
+import { requireString, validateColor, optionalString } from '../validation.js';
 
 const router = Router({ mergeParams: true });
 
@@ -16,9 +17,13 @@ router.post('/', (req, res) => {
     res.status(400).json({ error: 'keyword, category, and color are required' });
     return;
   }
+  const validKeyword = keyword.trim().slice(0, 200);
+  const validCategory = category.trim().slice(0, 100);
+  const validColor = validateColor(color) ?? color.trim().slice(0, 20);
+  const validTextColor = validateColor(text_color) ?? optionalString(text_color, 20);
   const result = db.prepare(
     'INSERT INTO highlight_rules (keyword, category, color, text_color, project_id) VALUES (?, ?, ?, ?, ?)'
-  ).run(keyword.trim(), category.trim(), color.trim(), text_color?.trim() || null, projectId);
+  ).run(validKeyword, validCategory, validColor, validTextColor, projectId);
   const rule = db.prepare('SELECT * FROM highlight_rules WHERE id = ?').get(result.lastInsertRowid);
   res.status(201).json(rule);
 });

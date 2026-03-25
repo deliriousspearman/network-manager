@@ -17,3 +17,9 @@ export async function fetchActivityLogs(projectId: number): Promise<ActivityLog[
   if (!res.ok) throw new Error('Failed to fetch activity logs');
   return res.json();
 }
+
+export async function fetchAllActivityLogs(): Promise<ActivityLog[]> {
+  const res = await fetch('/api/admin/logs');
+  if (!res.ok) throw new Error('Failed to fetch admin logs');
+  return res.json();
+}

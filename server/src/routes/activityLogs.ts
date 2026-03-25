@@ -9,7 +9,7 @@ router.get('/', (_req, res) => {
     `SELECT a.*, p.name AS project_name
      FROM activity_logs a
      LEFT JOIN projects p ON a.project_id = p.id
-     WHERE a.project_id = ? OR a.project_id IS NULL
+     WHERE a.project_id = ?
      ORDER BY a.created_at DESC`
   ).all(projectId);
   res.json(logs);
