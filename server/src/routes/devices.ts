@@ -10,22 +10,56 @@ const STATUS_VALUES = ['up', 'down', 'warning', 'unknown'];
 
 const router = Router({ mergeParams: true });
 
-router.get('/', (_req, res) => {
+const DEVICE_SORT_MAP: Record<string, string> = {
+  name: 'd.name', type: 'd.type', hosting_type: 'd.hosting_type',
+  os: 'd.os', subnet_name: 's.name', status: 'd.status', primary_ip: 'primary_ip',
+};
+
+router.get('/', (req, res) => {
   const projectId = res.locals.projectId;
-  const devices = db.prepare(
-    `SELECT d.*,
-      s.name as subnet_name,
-      h.name as hypervisor_name,
-      (SELECT ip_address FROM device_ips WHERE device_id = d.id AND is_primary = 1 LIMIT 1) as primary_ip,
-      (SELECT GROUP_CONCAT(tag) FROM device_tags WHERE device_id = d.id) as tags_csv,
-      (SELECT COUNT(*) FROM credentials WHERE device_id = d.id) as credential_count
-     FROM devices d
-     LEFT JOIN subnets s ON d.subnet_id = s.id
-     LEFT JOIN devices h ON d.hypervisor_id = h.id
-     WHERE d.project_id = ?
-     ORDER BY d.name`
-  ).all(projectId) as any[];
-  res.json(devices.map(d => ({ ...d, tags: d.tags_csv ? d.tags_csv.split(',') : [], tags_csv: undefined })));
+
+  const selectCols = `d.*,
+    s.name as subnet_name,
+    h.name as hypervisor_name,
+    (SELECT ip_address FROM device_ips WHERE device_id = d.id AND is_primary = 1 LIMIT 1) as primary_ip,
+    (SELECT GROUP_CONCAT(tag) FROM device_tags WHERE device_id = d.id) as tags_csv,
+    (SELECT COUNT(*) FROM credentials WHERE device_id = d.id) as credential_count`;
+  const fromClause = `FROM devices d
+    LEFT JOIN subnets s ON d.subnet_id = s.id
+    LEFT JOIN devices h ON d.hypervisor_id = h.id
+    WHERE d.project_id = ?`;
+
+  const search = ((req.query.search as string) || '').trim();
+  let searchClause = '';
+  const searchParams: any[] = [];
+  if (search) {
+    const like = `%${search}%`;
+    searchClause = ` AND (d.name LIKE ? OR d.os LIKE ? OR d.type LIKE ? OR s.name LIKE ?
+      OR EXISTS (SELECT 1 FROM device_ips WHERE device_id = d.id AND ip_address LIKE ?)
+      OR EXISTS (SELECT 1 FROM device_tags WHERE device_id = d.id AND tag LIKE ?))`;
+    searchParams.push(like, like, like, like, like, like);
+  }
+
+  const sortCol = DEVICE_SORT_MAP[req.query.sort as string] || 'd.name';
+  const sortDir = req.query.order === 'desc' ? 'DESC' : 'ASC';
+
+  // Paginated mode: return { items, total, page, limit, totalPages }
+  if (req.query.page !== undefined) {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+    const baseParams = [projectId, ...searchParams];
+    const { total } = db.prepare(`SELECT COUNT(*) as total ${fromClause}${searchClause}`).get(...baseParams) as { total: number };
+    const rows = db.prepare(`SELECT ${selectCols} ${fromClause}${searchClause} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...baseParams, limit, offset) as any[];
+    return res.json({
+      items: rows.map(d => ({ ...d, tags: d.tags_csv ? d.tags_csv.split(',') : [], tags_csv: undefined })),
+      total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)),
+    });
+  }
+
+  // Unpaginated mode (legacy — used by diagram "add device" dropdown etc.)
+  const rows = db.prepare(`SELECT ${selectCols} ${fromClause}${searchClause} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...searchParams) as any[];
+  res.json(rows.map(d => ({ ...d, tags: d.tags_csv ? d.tags_csv.split(',') : [], tags_csv: undefined })));
 });
 
 router.get('/hypervisors', (_req, res) => {
@@ -154,8 +188,13 @@ router.put('/:id', (req, res) => {
     throw e;
   }
   const projectId = res.locals.projectId;
-  const existing = db.prepare('SELECT id FROM devices WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
+  const existing = db.prepare('SELECT id, updated_at FROM devices WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { id: number; updated_at: string } | undefined;
   if (!existing) return res.status(404).json({ error: 'Device not found' });
+
+  // Optimistic locking: reject if the record was modified since the client last fetched it
+  if (req.body.updated_at && existing.updated_at !== req.body.updated_at) {
+    return res.status(409).json({ error: 'This device was modified by another session. Please refresh and try again.' });
+  }
 
   updateDevice(req.params.id, req.body as CreateDeviceRequest);
   const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(req.params.id) as Record<string, unknown>;

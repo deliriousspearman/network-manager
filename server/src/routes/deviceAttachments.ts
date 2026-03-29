@@ -33,7 +33,7 @@ router.get('/:attachmentId', (req, res) => {
 router.post('/', (req, res) => {
   const { deviceId } = req.params as { deviceId: string };
   const projectId = res.locals.projectId;
-  const { filename, mime_type, size, data } = req.body as { filename: string; mime_type: string; size: number; data: string };
+  const { filename, mime_type, data } = req.body as { filename: string; mime_type: string; size: number; data: string };
 
   if (!filename || !data) {
     return res.status(400).json({ error: 'filename and data are required' });

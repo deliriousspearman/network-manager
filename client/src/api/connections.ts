@@ -1,9 +1,10 @@
 import type { Connection, CreateConnectionRequest } from 'shared/types';
 import { projectBase } from './base';
+import { throwApiError } from '../utils/apiError';
 
 export async function fetchConnections(projectId: number): Promise<Connection[]> {
   const res = await fetch(projectBase(projectId, 'connections'));
-  if (!res.ok) throw new Error('Failed to fetch connections');
+  if (!res.ok) await throwApiError(res, 'Failed to fetch connections');
   return res.json();
 }
 
@@ -13,7 +14,7 @@ export async function createConnection(projectId: number, data: CreateConnection
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to create connection');
+  if (!res.ok) await throwApiError(res, 'Failed to create connection');
   return res.json();
 }
 
@@ -23,11 +24,11 @@ export async function updateConnection(projectId: number, id: number, data: { la
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to update connection');
+  if (!res.ok) await throwApiError(res, 'Failed to update connection');
   return res.json();
 }
 
 export async function deleteConnection(projectId: number, id: number): Promise<void> {
   const res = await fetch(`${projectBase(projectId, 'connections')}/${id}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete connection');
+  if (!res.ok) await throwApiError(res, 'Failed to delete connection');
 }

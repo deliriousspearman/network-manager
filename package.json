@@ -1,6 +1,7 @@
 {
   "name": "network-diagram",
   "private": true,
+  "type": "module",
   "workspaces": [
     "shared",
     "server",
@@ -10,9 +11,20 @@
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "npm -w server run dev",
     "dev:client": "npm -w client run dev",
-    "build": "npm -w server run build && npm -w client run build"
+    "build": "npm -w server run build && npm -w client run build",
+    "lint": "eslint 'client/src/**/*.{ts,tsx}' 'server/src/**/*.ts' 'shared/**/*.ts'",
+    "lint:fix": "eslint --fix 'client/src/**/*.{ts,tsx}' 'server/src/**/*.ts' 'shared/**/*.ts'",
+    "format": "prettier --write 'client/src/**/*.{ts,tsx,css}' 'server/src/**/*.ts' 'shared/**/*.ts'",
+    "format:check": "prettier --check 'client/src/**/*.{ts,tsx,css}' 'server/src/**/*.ts' 'shared/**/*.ts'"
   },
   "devDependencies": {
-    "concurrently": "^9.1.0"
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "concurrently": "^9.1.0",
+    "eslint": "^9.39.4",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "prettier": "^3.8.1"
   }
 }

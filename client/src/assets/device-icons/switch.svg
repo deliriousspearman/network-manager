@@ -1,18 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
   <!-- Switch body -->
-  <rect x="4" y="18" width="56" height="28" rx="3"/>
+  <rect x="8" y="36" width="112" height="56" rx="6"/>
   <!-- Port row top -->
-  <rect x="10" y="23" width="6" height="8" rx="1"/>
-  <rect x="19" y="23" width="6" height="8" rx="1"/>
-  <rect x="28" y="23" width="6" height="8" rx="1"/>
-  <rect x="37" y="23" width="6" height="8" rx="1"/>
-  <rect x="46" y="23" width="6" height="8" rx="1"/>
+  <rect x="20" y="46" width="12" height="16" rx="2"/>
+  <rect x="38" y="46" width="12" height="16" rx="2"/>
+  <rect x="56" y="46" width="12" height="16" rx="2"/>
+  <rect x="74" y="46" width="12" height="16" rx="2"/>
+  <rect x="92" y="46" width="12" height="16" rx="2"/>
   <!-- Port row bottom -->
-  <rect x="10" y="34" width="6" height="8" rx="1"/>
-  <rect x="19" y="34" width="6" height="8" rx="1"/>
-  <rect x="28" y="34" width="6" height="8" rx="1"/>
-  <rect x="37" y="34" width="6" height="8" rx="1"/>
-  <rect x="46" y="34" width="6" height="8" rx="1"/>
+  <rect x="20" y="68" width="12" height="16" rx="2"/>
+  <rect x="38" y="68" width="12" height="16" rx="2"/>
+  <rect x="56" y="68" width="12" height="16" rx="2"/>
+  <rect x="74" y="68" width="12" height="16" rx="2"/>
+  <rect x="92" y="68" width="12" height="16" rx="2"/>
   <!-- Status LED -->
-  <circle cx="55" cy="22" r="1.5" fill="currentColor"/>
+  <circle cx="110" cy="44" r="3" fill="currentColor"/>
 </svg>

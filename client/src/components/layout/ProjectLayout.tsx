@@ -4,6 +4,7 @@ import { fetchProjectBySlug } from '../../api/projects';
 import { ProjectContext } from '../../contexts/ProjectContext';
 import AppShell from './AppShell';
 import Breadcrumb from './Breadcrumb';
+import { setStorage } from '../../utils/storage';
 
 export default function ProjectLayout() {
   const { projectSlug } = useParams<{ projectSlug: string }>();
@@ -27,7 +28,7 @@ export default function ProjectLayout() {
   }
 
   // Save last-used project
-  localStorage.setItem('last-project-slug', project.slug);
+  setStorage('last-project-slug', project.slug);
 
   return (
     <ProjectContext.Provider value={{ project, projectId: project.id }}>

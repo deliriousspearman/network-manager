@@ -11,8 +11,6 @@ router.get('/', (_req, res) => {
   res.json(settings);
 });
 
-const ALLOWED_SETTING_KEYS = ['timezone', 'notification_enabled', 'notification_text', 'notification_bg_color', 'notification_text_color', 'notification_height', 'notification_font_size', 'notification_bold'];
-
 router.put('/', (req, res) => {
   const { timezone, notification_enabled, notification_text, notification_bg_color, notification_text_color, notification_height, notification_font_size, notification_bold } = req.body as Record<string, string | undefined>;
   const upsert = db.prepare(`INSERT INTO app_settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);

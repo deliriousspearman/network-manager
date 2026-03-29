@@ -18,16 +18,44 @@ const listSelect = `
   LEFT JOIN devices d ON c.device_id = d.id
 `;
 
+const CRED_SORT_MAP: Record<string, string> = {
+  device_name: 'd.name', host: 'c.host', username: 'c.username',
+  type: 'c.type', source: 'c.source',
+};
+
 router.get('/', (req, res) => {
   const projectId = res.locals.projectId;
   const { device_id } = req.query;
+
+  // Device-scoped query: never paginate (used from device detail page)
   if (device_id) {
     const credentials = db.prepare(`${listSelect} WHERE c.project_id = ? AND c.device_id = ? ORDER BY c.created_at DESC`).all(projectId, device_id);
-    res.json(credentials);
-  } else {
-    const credentials = db.prepare(`${listSelect} WHERE c.project_id = ? ORDER BY c.created_at DESC`).all(projectId);
-    res.json(credentials);
+    return res.json(credentials);
   }
+
+  const search = ((req.query.search as string) || '').trim();
+  let searchClause = '';
+  const searchParams: any[] = [];
+  if (search) {
+    const like = `%${search}%`;
+    searchClause = ` AND (c.host LIKE ? OR c.username LIKE ? OR c.password LIKE ? OR c.type LIKE ? OR c.source LIKE ? OR d.name LIKE ?)`;
+    searchParams.push(like, like, like, like, like, like);
+  }
+  const sortCol = CRED_SORT_MAP[req.query.sort as string] || 'c.created_at';
+  const sortDir = req.query.order === 'desc' ? 'DESC' : 'ASC';
+  const where = `WHERE c.project_id = ?${searchClause}`;
+
+  if (req.query.page !== undefined) {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+    const baseParams = [projectId, ...searchParams];
+    const { total } = db.prepare(`SELECT COUNT(*) as total FROM credentials c LEFT JOIN devices d ON c.device_id = d.id ${where}`).get(...baseParams) as { total: number };
+    const items = db.prepare(`${listSelect} ${where} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...baseParams, limit, offset);
+    return res.json({ items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
+  }
+
+  res.json(db.prepare(`${listSelect} ${where} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...searchParams));
 });
 
 router.get('/:id', (req, res) => {

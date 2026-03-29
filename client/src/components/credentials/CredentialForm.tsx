@@ -6,8 +6,15 @@ import { fetchDevices } from '../../api/devices';
 import { useProject } from '../../contexts/ProjectContext';
 import { CREDENTIAL_TYPES } from 'shared/types';
 
-export default function CredentialForm() {
-  const { id } = useParams();
+interface Props {
+  onClose?: () => void;
+  editId?: number;
+}
+
+export default function CredentialForm({ onClose, editId }: Props = {}) {
+  const params = useParams();
+  const isModal = !!onClose;
+  const id = editId ?? (params.id ? Number(params.id) : undefined);
   const isEdit = !!id;
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -27,8 +34,8 @@ export default function CredentialForm() {
 
   const { data: devices } = useQuery({ queryKey: ['devices', projectId], queryFn: () => fetchDevices(projectId) });
   const { data: credential } = useQuery({
-    queryKey: ['credential', projectId, Number(id)],
-    queryFn: () => fetchCredential(projectId, Number(id)),
+    queryKey: ['credential', projectId, id],
+    queryFn: () => fetchCredential(projectId, id!),
     enabled: isEdit,
   });
 
@@ -79,13 +86,18 @@ export default function CredentialForm() {
     });
   };
 
+  const done = () => {
+    if (isModal) onClose!();
+    else navigate(`${base}/credentials`);
+  };
+
   const mutation = useMutation({
     mutationFn: async (data: Parameters<typeof createCredential>[1]) => {
-      return isEdit ? updateCredential(projectId, Number(id), data) : createCredential(projectId, data);
+      return isEdit ? updateCredential(projectId, id!, data) : createCredential(projectId, data);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['credentials', projectId] });
-      navigate(`${base}/credentials`);
+      done();
     },
   });
 
@@ -104,7 +116,6 @@ export default function CredentialForm() {
       data.file_data = await readFileAsBase64(file);
       data.file_name = file.name;
     } else if (removeFile && !showFileUpload) {
-      // Type changed away from VPN/SSH Key — clear file
       data.file_name = '';
     } else if (removeFile) {
       data.file_name = '';
@@ -113,111 +124,116 @@ export default function CredentialForm() {
     mutation.mutate(data);
   };
 
+  const formContent = (
+    <form onSubmit={handleSubmit}>
+      <div className="form-group">
+        <label>Device</label>
+        <select value={deviceId ?? ''} onChange={handleDeviceChange}>
+          <option value="">None</option>
+          {devices?.map(d => (
+            <option key={d.id} value={d.id}>{d.name}{d.primary_ip ? ` (${d.primary_ip})` : ''}</option>
+          ))}
+        </select>
+      </div>
+
+      <div className="form-group">
+        <label>Host</label>
+        <input
+          type="text"
+          value={host}
+          onChange={e => setHost(e.target.value)}
+          placeholder="192.168.1.1 or hostname"
+        />
+      </div>
+
+      <div className="form-group">
+        <label>Username <span style={{ color: 'var(--color-danger)' }}>*</span></label>
+        <input
+          type="text"
+          value={username}
+          onChange={e => setUsername(e.target.value)}
+          required
+          placeholder="admin"
+        />
+      </div>
+
+      <div className="form-group">
+        <label>Type</label>
+        <select value={type} onChange={handleTypeChange}>
+          <option value="">Select type...</option>
+          {CREDENTIAL_TYPES.map(t => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
+      </div>
+
+      {showFileUpload ? (
+        <div className="form-group">
+          <label>File {type === 'SSH Key' ? '(Key File)' : '(Config File)'}</label>
+          {existingFileName && !removeFile && !file && (
+            <div className="file-existing">
+              <span>{existingFileName}</span>
+              <button type="button" className="btn btn-danger btn-sm" onClick={() => setRemoveFile(true)}>
+                Remove
+              </button>
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            onChange={e => {
+              const f = e.target.files?.[0] || null;
+              setFile(f);
+              if (f) setRemoveFile(false);
+            }}
+          />
+        </div>
+      ) : (
+        <div className="form-group">
+          <label>Password</label>
+          <input
+            type="text"
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
+        </div>
+      )}
+
+      <div className="form-group">
+        <label>Source</label>
+        <input
+          type="text"
+          value={source}
+          onChange={e => setSource(e.target.value)}
+          placeholder="config file, discovered, manual..."
+        />
+      </div>
+
+      {mutation.isError && (
+        <div className="error-message">{String(mutation.error)}</div>
+      )}
+
+      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
+        <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
+          {mutation.isPending ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Credential'}
+        </button>
+        <button type="button" className="btn btn-secondary" onClick={done}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+
+  if (isModal) return formContent;
+
   return (
     <div>
       <div className="page-header">
         <h2>{isEdit ? 'Edit Credential' : 'New Credential'}</h2>
       </div>
-
       <div className="card">
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Device</label>
-            <select value={deviceId ?? ''} onChange={handleDeviceChange}>
-              <option value="">None</option>
-              {devices?.map(d => (
-                <option key={d.id} value={d.id}>{d.name}{d.primary_ip ? ` (${d.primary_ip})` : ''}</option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Host</label>
-            <input
-              type="text"
-              value={host}
-              onChange={e => setHost(e.target.value)}
-              placeholder="192.168.1.1 or hostname"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Username <span style={{ color: 'var(--color-danger)' }}>*</span></label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              required
-              placeholder="admin"
-            />
-          </div>
-
-          <div className="form-group">
-            <label>Type</label>
-            <select value={type} onChange={handleTypeChange}>
-              <option value="">Select type...</option>
-              {CREDENTIAL_TYPES.map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-
-          {showFileUpload ? (
-            <div className="form-group">
-              <label>File {type === 'SSH Key' ? '(Key File)' : '(Config File)'}</label>
-              {existingFileName && !removeFile && !file && (
-                <div className="file-existing">
-                  <span>{existingFileName}</span>
-                  <button type="button" className="btn btn-danger btn-sm" onClick={() => setRemoveFile(true)}>
-                    Remove
-                  </button>
-                </div>
-              )}
-              <input
-                ref={fileInputRef}
-                type="file"
-                onChange={e => {
-                  const f = e.target.files?.[0] || null;
-                  setFile(f);
-                  if (f) setRemoveFile(false);
-                }}
-              />
-            </div>
-          ) : (
-            <div className="form-group">
-              <label>Password</label>
-              <input
-                type="text"
-                value={password}
-                onChange={e => setPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-            </div>
-          )}
-
-          <div className="form-group">
-            <label>Source</label>
-            <input
-              type="text"
-              value={source}
-              onChange={e => setSource(e.target.value)}
-              placeholder="config file, discovered, manual..."
-            />
-          </div>
-
-          {mutation.isError && (
-            <div className="error-message">{String(mutation.error)}</div>
-          )}
-
-          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>
-            <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
-              {mutation.isPending ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Credential'}
-            </button>
-            <button type="button" className="btn btn-secondary" onClick={() => navigate(`${base}/credentials`)}>
-              Cancel
-            </button>
-          </div>
-        </form>
+        {formContent}
       </div>
     </div>
   );

@@ -1,4 +1,5 @@
 import type { DevicePort } from 'shared/types';
+import { throwApiError } from '../utils/apiError';
 
 function base(projectId: number, deviceId: number) {
   return `/api/projects/${projectId}/devices/${deviceId}/ports`;
@@ -6,7 +7,7 @@ function base(projectId: number, deviceId: number) {
 
 export async function fetchDevicePorts(projectId: number, deviceId: number): Promise<DevicePort[]> {
   const res = await fetch(base(projectId, deviceId));
-  if (!res.ok) throw new Error('Failed to fetch ports');
+  if (!res.ok) await throwApiError(res, 'Failed to fetch ports');
   return res.json();
 }
 
@@ -20,7 +21,7 @@ export async function createDevicePort(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error('Failed to create port');
+  if (!res.ok) await throwApiError(res, 'Failed to create port');
   return res.json();
 }
 
@@ -35,11 +36,11 @@ export async function updateDevicePort(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error('Failed to update port');
+  if (!res.ok) await throwApiError(res, 'Failed to update port');
   return res.json();
 }
 
 export async function deleteDevicePort(projectId: number, deviceId: number, portId: number): Promise<void> {
   const res = await fetch(`${base(projectId, deviceId)}/${portId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete port');
+  if (!res.ok) await throwApiError(res, 'Failed to delete port');
 }

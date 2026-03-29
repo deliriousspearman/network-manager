@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { X, Star, RotateCcw, Pipette } from 'lucide-react';
 import type { NodePrefs } from 'shared/types';
+import { getStorage, setStorage } from '../../utils/storage';
 
 export interface SelectedElement {
   type: 'device' | 'subnet' | 'edge';
@@ -47,7 +48,7 @@ const COLOUR_HISTORY_KEY = 'colour-picker-history';
 const MAX_COLOUR_HISTORY = 8;
 
 function getColourHistory(): string[] {
-  try { return JSON.parse(localStorage.getItem(COLOUR_HISTORY_KEY) || '[]'); }
+  try { return JSON.parse(getStorage(COLOUR_HISTORY_KEY, '[]')); }
   catch { return []; }
 }
 
@@ -83,7 +84,7 @@ function ColourPicker({
 
   const commitToHistory = (colour: string) => {
     const updated = [colour, ...getColourHistory().filter(c => c !== colour)].slice(0, MAX_COLOUR_HISTORY);
-    localStorage.setItem(COLOUR_HISTORY_KEY, JSON.stringify(updated));
+    setStorage(COLOUR_HISTORY_KEY, JSON.stringify(updated));
     setHistory(updated);
   };
 
@@ -324,7 +325,7 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase }: { data
       <AppearanceSection nodeId={data.deviceId} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={true} />
 
       <div className="props-section">
-        <Link to={`${projectBase || ''}/devices/${data.deviceId}`} className="btn btn-primary btn-sm" style={{ width: '100%', justifyContent: 'center' }}>
+        <Link to={`${projectBase || ''}/devices/${data.deviceId}`} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center', fontSize: '1rem', lineHeight: 1.5 }}>
           View Full Details
         </Link>
       </div>
@@ -382,7 +383,7 @@ const EDGE_WIDTH_OPTIONS = [
   { value: '6', label: 'Heavy' },
 ];
 
-function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionUpdate?: (connId: number, data: any) => void }) {
+function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionUpdate?: Props['onConnectionUpdate'] }) {
   const [label, setLabel] = useState(data.label || '');
   const [sourcePort, setSourcePort] = useState(data.sourcePort || '');
   const [targetPort, setTargetPort] = useState(data.targetPort || '');
@@ -565,7 +566,7 @@ export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefCh
         {selected.type === 'subnet' && (
           <SubnetProperties data={selected.data} nodePrefs={nodePrefs} onPrefChange={onPrefChange} />
         )}
-        {selected.type === 'edge' && <EdgeProperties data={selected.data} onConnectionUpdate={onConnectionUpdate as any} />}
+        {selected.type === 'edge' && <EdgeProperties data={selected.data} onConnectionUpdate={onConnectionUpdate} />}
       </div>
     </div>
   );

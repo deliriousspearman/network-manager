@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Hardware layer (outer) -->
+  <rect x="8" y="8" width="112" height="112" rx="8"/>
+  <!-- Hypervisor layer (middle) -->
+  <rect x="22" y="22" width="84" height="84" rx="6"/>
+  <!-- VM containers (2x2 inner) -->
+  <rect x="32" y="32" width="28" height="28" rx="3"/>
+  <rect x="68" y="32" width="28" height="28" rx="3"/>
+  <rect x="32" y="68" width="28" height="28" rx="3"/>
+  <rect x="68" y="68" width="28" height="28" rx="3"/>
+  <!-- VM indicators -->
+  <circle cx="40" cy="40" r="3" fill="currentColor"/>
+  <circle cx="76" cy="40" r="3" fill="currentColor"/>
+  <circle cx="40" cy="76" r="3" fill="currentColor"/>
+  <circle cx="76" cy="76" r="3" fill="currentColor"/>
+</svg>

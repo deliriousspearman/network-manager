@@ -17,7 +17,7 @@ export default function DeviceNotesSection({ deviceId, initialHtml }: Props) {
   const editorRef = useRef<HTMLDivElement>(null);
 
   const saveMut = useMutation({
-    mutationFn: (html: string) => updateDevice(projectId, deviceId, { rich_notes: html } as any),
+    mutationFn: (html: string) => updateDevice(projectId, deviceId, { rich_notes: html }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['device', projectId, deviceId] });
       setEditing(false);

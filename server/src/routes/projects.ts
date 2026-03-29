@@ -137,14 +137,7 @@ router.delete('/:id', (req, res) => {
     db.prepare('DELETE FROM device_ips WHERE device_id IN (SELECT id FROM devices WHERE project_id = ?)').run(projectId);
     db.prepare('DELETE FROM device_tags WHERE device_id IN (SELECT id FROM devices WHERE project_id = ?)').run(projectId);
     db.prepare('DELETE FROM device_subnets WHERE device_id IN (SELECT id FROM devices WHERE project_id = ?)').run(projectId);
-    // Delete parsed data for command_outputs in this project
-    const outputIds = db.prepare('SELECT id FROM command_outputs WHERE project_id = ?').all(projectId) as { id: number }[];
-    for (const { id } of outputIds) {
-      for (const table of ['parsed_processes', 'parsed_connections', 'parsed_logins', 'parsed_interfaces', 'parsed_mounts', 'parsed_routes', 'parsed_services']) {
-        db.prepare(`DELETE FROM ${table} WHERE command_output_id = ?`).run(id);
-      }
-    }
-    // Delete top-level project-scoped tables
+    // Delete command_outputs (parsed_* tables cascade via FK ON DELETE CASCADE)
     db.prepare('DELETE FROM command_outputs WHERE project_id = ?').run(projectId);
     db.prepare('DELETE FROM connections WHERE project_id = ?').run(projectId);
     db.prepare('DELETE FROM credentials WHERE project_id = ?').run(projectId);

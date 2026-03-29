@@ -19,7 +19,9 @@ success() { echo "✓ $*"; }
 error()   { echo "✗ $*" >&2; exit 1; }
 header()  { echo; echo "── $* ──"; }
 
-# ── Prerequisites ──────────────────────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 1: Collect all user inputs before making any changes
+# ══════════════════════════════════════════════════════════════════════════════
 
 header "Checking prerequisites"
 
@@ -46,8 +48,6 @@ if [[ "$MODE" != "dev" && "$MODE" != "prod" ]]; then
   error "Invalid mode '$MODE'. Enter 'dev' or 'prod'."
 fi
 
-info "Mode: $MODE"
-
 # ── Domain (development only) ─────────────────────────────────────────────────
 
 VITE_DOMAIN=""
@@ -55,9 +55,6 @@ if [[ "$MODE" == "dev" ]]; then
   header "Domain (optional)"
   read -rp "  Custom domain/hostname for reverse proxy access? (leave blank to skip): " INPUT_DOMAIN
   VITE_DOMAIN="${INPUT_DOMAIN:-}"
-  if [[ -n "$VITE_DOMAIN" ]]; then
-    info "Allowed host: $VITE_DOMAIN"
-  fi
 fi
 
 # ── Configuration (production only) ───────────────────────────────────────────
@@ -65,6 +62,7 @@ fi
 PORT="3001"
 USE_HTTPS=false
 PROTOCOL="http"
+NEEDS_PORT_CAP=false
 
 if [[ "$MODE" == "prod" ]]; then
   header "Configuration"
@@ -72,16 +70,54 @@ if [[ "$MODE" == "prod" ]]; then
   read -rp "  Port [3001]: " INPUT_PORT
   PORT="${INPUT_PORT:-3001}"
 
+  # Check if the chosen port requires elevated permissions
+  if [[ "$PORT" -lt 1024 ]]; then
+    NEEDS_PORT_CAP=true
+    echo
+    info "⚠  Port $PORT is a privileged port (below 1024)."
+    info "   After setup, you will need to grant Node.js permission to bind to it."
+    info "   The required command will be shown at the end of setup."
+    echo
+    read -rp "  Continue with port $PORT? (y/N): " CONFIRM_PORT
+    if [[ "${CONFIRM_PORT,,}" != "y" && "${CONFIRM_PORT,,}" != "yes" ]]; then
+      error "Setup cancelled. Re-run and choose a port >= 1024, or continue with a low port."
+    fi
+  fi
+
   read -rp "  Set up HTTPS with a self-signed certificate? (y/N): " INPUT_HTTPS
   if [[ "${INPUT_HTTPS,,}" == "y" || "${INPUT_HTTPS,,}" == "yes" ]]; then
     command -v openssl >/dev/null 2>&1 || error "openssl not found. Install it or skip HTTPS setup."
     USE_HTTPS=true
     PROTOCOL="https"
   fi
+fi
 
+# ── Summary & confirmation ────────────────────────────────────────────────────
+
+header "Setup summary"
+
+info "Mode:  $MODE"
+if [[ "$MODE" == "dev" ]]; then
+  if [[ -n "$VITE_DOMAIN" ]]; then
+    info "Domain: $VITE_DOMAIN"
+  fi
+else
   info "Port:  $PORT"
   info "HTTPS: $USE_HTTPS"
+  if [[ "$NEEDS_PORT_CAP" == "true" ]]; then
+    info "Note:  Privileged port — will need setcap after setup"
+  fi
 fi
+echo
+read -rp "  Proceed with setup? (Y/n): " CONFIRM_SETUP
+if [[ "${CONFIRM_SETUP,,}" == "n" || "${CONFIRM_SETUP,,}" == "no" ]]; then
+  info "Setup cancelled. No changes were made."
+  exit 0
+fi
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 2: Execute setup (no more user input from this point)
+# ══════════════════════════════════════════════════════════════════════════════
 
 # ── Install dependencies ───────────────────────────────────────────────────────
 
@@ -195,6 +231,20 @@ else
     echo "  Note: You may need to accept the self-signed"
     echo "  certificate warning in your browser."
   fi
+fi
+if [[ "$NEEDS_PORT_CAP" == "true" ]]; then
+  NODE_BIN="$(which node)"
+  echo ""
+  echo "  ⚠  Privileged port setup required"
+  echo "  Port $PORT requires additional permissions. Run:"
+  echo ""
+  echo "    sudo setcap 'cap_net_bind_service=+ep' ${NODE_BIN}"
+  echo ""
+  echo "  This grants Node.js permission to bind to ports"
+  echo "  below 1024. You only need to run this once (or"
+  echo "  again after updating Node.js). Then restart:"
+  echo ""
+  echo "    systemctl --user restart network-manager"
 fi
 echo ""
 echo "  Service management:"

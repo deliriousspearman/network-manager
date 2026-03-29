@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchSubnet, createSubnet, updateSubnet } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
+import { isValidCidr } from '../../utils/validation';
 
 export default function SubnetForm() {
   const { id } = useParams();
@@ -40,13 +41,21 @@ export default function SubnetForm() {
     },
   });
 
+  const [validationError, setValidationError] = useState('');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationError('');
+    if (cidr && !isValidCidr(cidr)) {
+      setValidationError('Invalid CIDR notation. Expected format: 192.168.1.0/24');
+      return;
+    }
     mutation.mutate({
       name,
       cidr,
       vlan_id: vlanId ? Number(vlanId) : undefined,
       description: description || undefined,
+      updated_at: isEdit ? subnet?.updated_at : undefined,
     });
   };
 
@@ -75,6 +84,11 @@ export default function SubnetForm() {
             <input value={description} onChange={e => setDescription(e.target.value)} />
           </div>
         </div>
+        {(validationError || mutation.isError) && (
+          <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+            {validationError || (mutation.error as Error)?.message}
+          </div>
+        )}
         <div className="actions" style={{ marginTop: '1rem' }}>
           <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving...' : (isEdit ? 'Save Changes' : 'Create Subnet')}

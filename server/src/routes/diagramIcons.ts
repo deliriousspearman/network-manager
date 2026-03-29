@@ -7,7 +7,7 @@ const router = Router({ mergeParams: true });
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
 const MAX_ICON_SIZE = 512 * 1024; // 512KB for icons
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB for standalone diagram images
-const VALID_DEVICE_TYPES = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone'];
+const VALID_DEVICE_TYPES = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone', 'hypervisor'];
 
 // ── Type default icons ───────────────────────────────────────
 
@@ -171,10 +171,12 @@ router.post('/images', (req, res) => {
   }
   const safeName = sanitizeFilename(filename);
   try {
+    const clampedWidth = Math.min(Math.max(width || 128, 10), 2000);
+    const clampedHeight = Math.min(Math.max(height || 128, 10), 2000);
     const result = db.prepare(
       `INSERT INTO diagram_images (project_id, x, y, width, height, filename, mime_type, data, label, view_id)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(projectId, x || 0, y || 0, width || 128, height || 128, safeName, mime_type, data, label || null, view_id || null);
+    ).run(projectId, x || 0, y || 0, clampedWidth, clampedHeight, safeName, mime_type, data, label || null, view_id || null);
     const image = db.prepare(
       'SELECT id, project_id, x, y, width, height, filename, mime_type, label, view_id, created_at FROM diagram_images WHERE id = ?'
     ).get(result.lastInsertRowid);
@@ -192,7 +194,9 @@ router.put('/images/:imageId', (req, res) => {
   const { imageId } = req.params;
   const existing = db.prepare('SELECT id FROM diagram_images WHERE id = ? AND project_id = ?').get(imageId, projectId);
   if (!existing) return res.status(404).json({ error: 'Image not found' });
-  const { x, y, width, height, label } = req.body;
+  const { x, y, label } = req.body;
+  const width = req.body.width != null ? Math.min(Math.max(Number(req.body.width), 10), 2000) : null;
+  const height = req.body.height != null ? Math.min(Math.max(Number(req.body.height), 10), 2000) : null;
   db.prepare(
     `UPDATE diagram_images SET
        x = COALESCE(?, x),
@@ -201,7 +205,7 @@ router.put('/images/:imageId', (req, res) => {
        height = COALESCE(?, height),
        label = COALESCE(?, label)
      WHERE id = ? AND project_id = ?`
-  ).run(x ?? null, y ?? null, width ?? null, height ?? null, label ?? null, imageId, projectId);
+  ).run(x ?? null, y ?? null, width, height, label ?? null, imageId, projectId);
   const image = db.prepare(
     'SELECT id, project_id, x, y, width, height, filename, mime_type, label, view_id, created_at FROM diagram_images WHERE id = ?'
   ).get(imageId);

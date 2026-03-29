@@ -1,4 +1,5 @@
 import type { DeviceAttachment } from 'shared/types';
+import { throwApiError } from '../utils/apiError';
 
 function base(projectId: number, deviceId: number) {
   return `/api/projects/${projectId}/devices/${deviceId}/attachments`;
@@ -10,7 +11,7 @@ export function attachmentUrl(projectId: number, deviceId: number, attachmentId:
 
 export async function fetchDeviceAttachments(projectId: number, deviceId: number): Promise<DeviceAttachment[]> {
   const res = await fetch(base(projectId, deviceId));
-  if (!res.ok) throw new Error('Failed to fetch attachments');
+  if (!res.ok) await throwApiError(res, 'Failed to fetch attachments');
   return res.json();
 }
 
@@ -24,11 +25,11 @@ export async function uploadDeviceAttachment(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error('Failed to upload attachment');
+  if (!res.ok) await throwApiError(res, 'Failed to upload attachment');
   return res.json();
 }
 
 export async function deleteDeviceAttachment(projectId: number, deviceId: number, attachmentId: number): Promise<void> {
   const res = await fetch(`${base(projectId, deviceId)}/${attachmentId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete attachment');
+  if (!res.ok) await throwApiError(res, 'Failed to delete attachment');
 }

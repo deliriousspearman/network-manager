@@ -4,6 +4,7 @@ import { fetchSubnet, deleteSubnet } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
+import LoadingSpinner from '../ui/LoadingSpinner';
 
 export default function SubnetDetail() {
   const { id } = useParams();
@@ -27,7 +28,7 @@ export default function SubnetDetail() {
     },
   });
 
-  if (isLoading) return <div className="loading">Loading...</div>;
+  if (isLoading) return <LoadingSpinner />;
   if (!subnet) return <div className="empty-state">Subnet not found</div>;
 
   const deviceCount = subnet.devices?.length ?? 0;

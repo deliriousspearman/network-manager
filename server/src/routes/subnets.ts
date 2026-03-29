@@ -2,14 +2,52 @@ import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
 import { ValidationError, requireString, optionalString, optionalInt } from '../validation.js';
-import type { CreateSubnetRequest } from 'shared/types.js';
 
 const router = Router({ mergeParams: true });
 
-router.get('/', (_req, res) => {
+// Validates IPv4 CIDR (e.g. 192.168.1.0/24) or IPv6 CIDR (e.g. 2001:db8::/32)
+function isValidCidr(cidr: string): boolean {
+  // IPv4: each octet 0-255, prefix 0-32
+  const ipv4Match = cidr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
+  if (ipv4Match) {
+    const octets = [+ipv4Match[1], +ipv4Match[2], +ipv4Match[3], +ipv4Match[4]];
+    const prefix = +ipv4Match[5];
+    return octets.every(o => o >= 0 && o <= 255) && prefix >= 0 && prefix <= 32;
+  }
+  // IPv6: hex groups with colons, prefix 0-128
+  const ipv6 = /^[0-9a-fA-F:]{2,39}\/(\d|[1-9]\d|1[01]\d|12[0-8])$/;
+  return ipv6.test(cidr);
+}
+
+const SUBNET_SORT_MAP: Record<string, string> = {
+  name: 'name', cidr: 'cidr', vlan_id: 'vlan_id', description: 'description',
+};
+
+router.get('/', (req, res) => {
   const projectId = res.locals.projectId;
-  const subnets = db.prepare('SELECT * FROM subnets WHERE project_id = ? ORDER BY name').all(projectId);
-  res.json(subnets);
+  const search = ((req.query.search as string) || '').trim();
+  let searchClause = '';
+  const searchParams: any[] = [];
+  if (search) {
+    const like = `%${search}%`;
+    searchClause = ` AND (name LIKE ? OR cidr LIKE ? OR CAST(vlan_id AS TEXT) LIKE ? OR description LIKE ?)`;
+    searchParams.push(like, like, like, like);
+  }
+  const sortCol = SUBNET_SORT_MAP[req.query.sort as string] || 'name';
+  const sortDir = req.query.order === 'desc' ? 'DESC' : 'ASC';
+  const where = `WHERE project_id = ?${searchClause}`;
+
+  if (req.query.page !== undefined) {
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
+    const offset = (page - 1) * limit;
+    const baseParams = [projectId, ...searchParams];
+    const { total } = db.prepare(`SELECT COUNT(*) as total FROM subnets ${where}`).get(...baseParams) as { total: number };
+    const items = db.prepare(`SELECT * FROM subnets ${where} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...baseParams, limit, offset);
+    return res.json({ items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
+  }
+
+  res.json(db.prepare(`SELECT * FROM subnets ${where} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...searchParams));
 });
 
 router.get('/:id', (req, res) => {
@@ -36,6 +74,9 @@ router.post('/', (req, res) => {
     if (e instanceof ValidationError) return res.status(400).json({ error: e.message });
     throw e;
   }
+  if (!isValidCidr(validCidr)) {
+    return res.status(400).json({ error: 'Invalid CIDR format (e.g. 192.168.1.0/24 or 2001:db8::/32)' });
+  }
   const vlan_id = optionalInt(req.body.vlan_id, 0, 4094);
   const description = optionalString(req.body.description, 1000);
   const result = db.prepare(
@@ -57,6 +98,18 @@ router.put('/:id', (req, res) => {
     if (e instanceof ValidationError) return res.status(400).json({ error: e.message });
     throw e;
   }
+  if (!isValidCidr(validCidr)) {
+    return res.status(400).json({ error: 'Invalid CIDR format (e.g. 192.168.1.0/24 or 2001:db8::/32)' });
+  }
+
+  // Optimistic locking: reject if the record was modified since the client last fetched it
+  if (req.body.updated_at) {
+    const existing = db.prepare('SELECT updated_at FROM subnets WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { updated_at: string } | undefined;
+    if (existing && existing.updated_at !== req.body.updated_at) {
+      return res.status(409).json({ error: 'This subnet was modified by another session. Please refresh and try again.' });
+    }
+  }
+
   const vlan_id = optionalInt(req.body.vlan_id, 0, 4094);
   const description = optionalString(req.body.description, 1000);
   const result = db.prepare(

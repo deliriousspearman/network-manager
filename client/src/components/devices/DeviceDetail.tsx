@@ -12,6 +12,7 @@ import ImageGallerySection from './ImageGallerySection';
 import DeviceNotesSection from './DeviceNotesSection';
 import DevicePortsSection from './DevicePortsSection';
 import DeviceAttachmentsSection from './DeviceAttachmentsSection';
+import LoadingSpinner from '../ui/LoadingSpinner';
 
 const DEFAULT_SECTION_ORDER = ['overview', 'credentials', 'ports', 'notes', 'gallery', 'attachments', 'command_outputs'];
 
@@ -42,7 +43,7 @@ export default function DeviceDetail() {
     },
   });
 
-  if (isLoading) return <div className="loading">Loading...</div>;
+  if (isLoading) return <LoadingSpinner />;
   if (!device) return <div className="empty-state">Device not found</div>;
 
   const sectionCfg = (() => {
@@ -131,6 +132,10 @@ export default function DeviceDetail() {
             <p><Link to={`${base}/devices/${device.hypervisor_id}`}>{device.hypervisor_name}</Link></p>
           </div>
         )}
+        <div className="detail-item">
+          <label>Status</label>
+          <p>{device.status ? <span className={`badge badge-status-${device.status}`}>{device.status.charAt(0).toUpperCase() + device.status.slice(1)}</span> : '—'}</p>
+        </div>
         <div className="detail-item">
           <label>AV</label>
           <p>{device.av ? `🛡️ ${device.av}` : '—'}</p>

@@ -1,11 +1,13 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Pencil, Trash2 } from 'lucide-react';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchHighlightRules, createHighlightRule, deleteHighlightRule } from '../../api/highlightRules';
+import { fetchHighlightRules, createHighlightRule, updateHighlightRule, deleteHighlightRule } from '../../api/highlightRules';
 import { exportBackup, importBackup } from '../../api/backup';
 import { fetchTypeDefaults, typeDefaultIconUrl, uploadTypeDefault, deleteTypeDefault } from '../../api/diagramIcons';
 import { useProject } from '../../contexts/ProjectContext';
-import type { HighlightRule, DeviceType } from 'shared/types';
+import type { HighlightRule } from 'shared/types';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
 
 import serverIcon from '../../assets/device-icons/server.svg?url';
@@ -18,14 +20,20 @@ import accessPointIcon from '../../assets/device-icons/access_point.svg?url';
 import iotIcon from '../../assets/device-icons/iot.svg?url';
 import cameraIcon from '../../assets/device-icons/camera.svg?url';
 import phoneIcon from '../../assets/device-icons/phone.svg?url';
+import hypervisorIcon from '../../assets/device-icons/hypervisor.svg?url';
 
 const DEFAULT_ICONS: Record<string, string> = {
   server: serverIcon, workstation: workstationIcon, router: routerIcon, switch: switchIcon,
   nas: nasIcon, firewall: firewallIcon, access_point: accessPointIcon, iot: iotIcon,
-  camera: cameraIcon, phone: phoneIcon,
+  camera: cameraIcon, phone: phoneIcon, hypervisor: hypervisorIcon,
 };
 
-const ALL_DEVICE_TYPES: DeviceType[] = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone'];
+const ICON_LABELS: Record<string, string> = {
+  ...DEVICE_TYPE_LABELS,
+  hypervisor: 'Hypervisor',
+};
+
+const ALL_ICON_TYPES: string[] = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone', 'hypervisor'];
 
 export default function SettingsPage() {
   const { projectId } = useProject();
@@ -102,6 +110,29 @@ export default function SettingsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['highlight-rules', projectId] }),
   });
 
+  const [editingRule, setEditingRule] = useState<HighlightRule | null>(null);
+  const [editKeyword, setEditKeyword] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [editColor, setEditColor] = useState('#fef9c3');
+  const [editUseTextColor, setEditUseTextColor] = useState(false);
+  const [editTextColor, setEditTextColor] = useState('#000000');
+
+  const updateMut = useMutation({
+    mutationFn: (data: { keyword: string; category: string; color: string; text_color?: string | null }) =>
+      updateHighlightRule(projectId, editingRule!.id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['highlight-rules', projectId] });
+      setEditingRule(null);
+    },
+  });
+
+  useEffect(() => {
+    if (!editingRule) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setEditingRule(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [editingRule]);
+
   async function handleExport() {
     setExportLoading(true);
     try {
@@ -151,6 +182,7 @@ export default function SettingsPage() {
   }
 
   return (
+    <>
     <div>
       <h2 style={{ marginBottom: '1.5rem' }}>Project Settings</h2>
 
@@ -182,11 +214,9 @@ export default function SettingsPage() {
                 />
                 Include credentials
               </label>
-              {inclCredentials && (
-                <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0.1rem 0 0 1.4rem' }}>
-                  Passwords will be stored as plaintext in the backup file.
-                </p>
-              )}
+              <p style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)', margin: '0.1rem 0 0 1.4rem', visibility: inclCredentials ? 'visible' : 'hidden' }}>
+                Passwords will be stored as plaintext in the backup file.
+              </p>
             </div>
             <button className="btn btn-primary" onClick={handleExport} disabled={exportLoading}>
               {exportLoading ? 'Exporting...' : 'Download Backup'}
@@ -229,13 +259,13 @@ export default function SettingsPage() {
         </p>
         <input ref={iconInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIconUpload} />
         <div className="settings-icon-grid">
-          {ALL_DEVICE_TYPES.map(dt => {
+          {ALL_ICON_TYPES.map(dt => {
             const hasCustom = customTypeSet.has(dt);
             const src = hasCustom ? typeDefaultIconUrl(projectId, dt) + `?t=${Date.now()}` : DEFAULT_ICONS[dt];
             return (
               <div key={dt} className="settings-icon-card">
                 <img src={src} alt={dt} className="settings-icon-preview" draggable={false} />
-                <div className="settings-icon-label">{DEVICE_TYPE_LABELS[dt]}</div>
+                <div className="settings-icon-label">{ICON_LABELS[dt] || dt}</div>
                 <div className="settings-icon-actions">
                   <button
                     className="btn btn-sm"
@@ -247,7 +277,7 @@ export default function SettingsPage() {
                   {hasCustom && (
                     <button
                       className="btn btn-sm btn-danger"
-                      onClick={async () => { if (await confirm(`Reset ${DEVICE_TYPE_LABELS[dt]} icon to default?`)) deleteIconMut.mutate(dt); }}
+                      onClick={async () => { if (await confirm(`Reset ${ICON_LABELS[dt] || dt} icon to default?`)) deleteIconMut.mutate(dt); }}
                       disabled={deleteIconMut.isPending}
                     >
                       Reset
@@ -369,13 +399,24 @@ export default function SettingsPage() {
                         {rule.keyword}
                       </span>
                     </td>
-                    <td>
+                    <td style={{ display: 'flex', gap: '0.4rem' }}>
+                      <button
+                        className="btn btn-secondary btn-sm"
+                        title="Edit"
+                        onClick={() => {
+                          setEditKeyword(rule.keyword);
+                          setEditCategory(rule.category);
+                          setEditColor(rule.color);
+                          setEditUseTextColor(!!rule.text_color);
+                          setEditTextColor(rule.text_color || '#000000');
+                          setEditingRule(rule);
+                        }}
+                      ><Pencil size={13} /></button>
                       <button
                         className="btn btn-danger btn-sm"
+                        title="Delete"
                         onClick={async () => { if (await confirm(`Delete rule for "${rule.keyword}"?`)) deleteMut.mutate(rule.id); }}
-                      >
-                        Delete
-                      </button>
+                      ><Trash2 size={13} /></button>
                     </td>
                   </tr>
                 ))}
@@ -387,5 +428,48 @@ export default function SettingsPage() {
         )}
       </div>
     </div>
+
+    {editingRule && createPortal(
+      <div className="confirm-overlay" onClick={() => setEditingRule(null)}>
+        <div className="confirm-dialog" onClick={e => e.stopPropagation()} style={{ minWidth: 420 }}>
+          <div className="confirm-dialog-title">Edit Highlight Rule</div>
+          <div className="confirm-dialog-message">
+            <div className="form-row" style={{ alignItems: 'flex-end' }}>
+              <div className="form-group" style={{ flex: 2 }}>
+                <label>Keyword</label>
+                <input type="text" value={editKeyword} onChange={e => setEditKeyword(e.target.value)} placeholder="e.g. sudo" />
+              </div>
+              <div className="form-group" style={{ flex: 2 }}>
+                <label>Category</label>
+                <input type="text" value={editCategory} onChange={e => setEditCategory(e.target.value)} placeholder="e.g. WARNING" />
+              </div>
+            </div>
+            <div className="form-row" style={{ alignItems: 'flex-end' }}>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Background</label>
+                <input type="color" value={editColor} onChange={e => setEditColor(e.target.value)} style={{ height: '38px', width: '100%', padding: '2px', cursor: 'pointer' }} />
+              </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', whiteSpace: 'nowrap' }}>
+                  <input type="checkbox" checked={editUseTextColor} onChange={e => setEditUseTextColor(e.target.checked)} style={{ width: 'auto', margin: 0 }} />
+                  Font colour
+                </label>
+                <input type="color" value={editTextColor} onChange={e => setEditTextColor(e.target.value)} disabled={!editUseTextColor} style={{ height: '38px', width: '100%', padding: '2px', cursor: editUseTextColor ? 'pointer' : 'not-allowed', opacity: editUseTextColor ? 1 : 0.4 }} />
+              </div>
+            </div>
+          </div>
+          <div className="confirm-dialog-actions">
+            <button className="btn btn-secondary" onClick={() => setEditingRule(null)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={!editKeyword.trim() || !editCategory.trim() || updateMut.isPending}
+              onClick={() => updateMut.mutate({ keyword: editKeyword.trim(), category: editCategory.trim(), color: editColor, text_color: editUseTextColor ? editTextColor : null })}
+            >Save</button>
+          </div>
+        </div>
+      </div>,
+      document.body
+    )}
+    </>
   );
 }

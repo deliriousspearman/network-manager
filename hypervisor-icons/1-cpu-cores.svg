@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- CPU package -->
+  <rect x="26" y="26" width="76" height="76" rx="4"/>
+  <!-- Pins left -->
+  <line x1="10" y1="42" x2="26" y2="42"/>
+  <line x1="10" y1="56" x2="26" y2="56"/>
+  <line x1="10" y1="72" x2="26" y2="72"/>
+  <line x1="10" y1="86" x2="26" y2="86"/>
+  <!-- Pins right -->
+  <line x1="102" y1="42" x2="118" y2="42"/>
+  <line x1="102" y1="56" x2="118" y2="56"/>
+  <line x1="102" y1="72" x2="118" y2="72"/>
+  <line x1="102" y1="86" x2="118" y2="86"/>
+  <!-- VM cores (2x2 grid) -->
+  <rect x="34" y="34" width="26" height="26" rx="2"/>
+  <rect x="68" y="34" width="26" height="26" rx="2"/>
+  <rect x="34" y="68" width="26" height="26" rx="2"/>
+  <rect x="68" y="68" width="26" height="26" rx="2"/>
+  <!-- Core indicators -->
+  <circle cx="42" cy="42" r="3" fill="currentColor"/>
+  <circle cx="76" cy="42" r="3" fill="currentColor"/>
+  <circle cx="42" cy="76" r="3" fill="currentColor"/>
+  <circle cx="76" cy="76" r="3" fill="currentColor"/>
+</svg>

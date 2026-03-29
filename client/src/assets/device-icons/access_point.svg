@@ -1,13 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
   <!-- AP body (circular disk) -->
-  <ellipse cx="32" cy="40" rx="22" ry="8"/>
-  <ellipse cx="32" cy="38" rx="22" ry="8"/>
+  <ellipse cx="64" cy="80" rx="44" ry="16"/>
+  <ellipse cx="64" cy="76" rx="44" ry="16"/>
   <!-- Top surface -->
-  <path d="M10 38 C10 33 21 28 32 28 C43 28 54 33 54 38"/>
+  <path d="M20 76 C20 66 42 56 64 56 C86 56 108 66 108 76"/>
   <!-- LED -->
-  <circle cx="32" cy="36" r="2" fill="currentColor"/>
+  <circle cx="64" cy="72" r="4" fill="currentColor"/>
   <!-- Signal waves -->
-  <path d="M22 22 C26 18 38 18 42 22" fill="none"/>
-  <path d="M17 16 C23 10 41 10 47 16" fill="none"/>
-  <path d="M12 10 C20 2 44 2 52 10" fill="none"/>
+  <path d="M44 44 C52 36 76 36 84 44" fill="none"/>
+  <path d="M34 32 C46 20 82 20 94 32" fill="none"/>
+  <path d="M24 20 C40 4 88 4 104 20" fill="none"/>
 </svg>

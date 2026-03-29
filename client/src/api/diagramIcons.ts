@@ -1,24 +1,16 @@
 import type { DiagramImage } from 'shared/types';
 import { projectBase } from './base';
+import { throwApiError } from '../utils/apiError';
 
 function base(projectId: number) {
   return projectBase(projectId, 'diagram-icons');
-}
-
-async function throwWithDetail(res: Response, fallback: string): Promise<never> {
-  let detail = '';
-  try {
-    const body = await res.json();
-    detail = body.error || JSON.stringify(body);
-  } catch { /* no json body */ }
-  throw new Error(detail || `${fallback} (${res.status})`);
 }
 
 // ── Type default icons ───────────────────────────────────────
 
 export async function fetchTypeDefaults(projectId: number): Promise<{ id: number; device_type: string; filename: string }[]> {
   const res = await fetch(`${base(projectId)}/type-defaults`);
-  if (!res.ok) await throwWithDetail(res, 'Failed to fetch type default icons');
+  if (!res.ok) await throwApiError(res, 'Failed to fetch type default icons');
   return res.json();
 }
 
@@ -32,12 +24,12 @@ export async function uploadTypeDefault(projectId: number, deviceType: string, p
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) await throwWithDetail(res, 'Failed to upload type default icon');
+  if (!res.ok) await throwApiError(res, 'Failed to upload type default icon');
 }
 
 export async function deleteTypeDefault(projectId: number, deviceType: string): Promise<void> {
   const res = await fetch(`${base(projectId)}/type-defaults/${deviceType}`, { method: 'DELETE' });
-  if (!res.ok) await throwWithDetail(res, 'Failed to delete type default icon');
+  if (!res.ok) await throwApiError(res, 'Failed to delete type default icon');
 }
 
 // ── Per-device icon overrides ────────────────────────────────
@@ -52,12 +44,12 @@ export async function uploadDeviceIconOverride(projectId: number, deviceId: numb
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) await throwWithDetail(res, 'Failed to upload device icon override');
+  if (!res.ok) await throwApiError(res, 'Failed to upload device icon override');
 }
 
 export async function deleteDeviceIconOverride(projectId: number, deviceId: number): Promise<void> {
   const res = await fetch(`${base(projectId)}/device/${deviceId}`, { method: 'DELETE' });
-  if (!res.ok) await throwWithDetail(res, 'Failed to delete device icon override');
+  if (!res.ok) await throwApiError(res, 'Failed to delete device icon override');
 }
 
 // ── Standalone diagram images ────────────────────────────────
@@ -72,7 +64,7 @@ export async function createDiagramImage(projectId: number, data: { x: number; y
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) await throwWithDetail(res, 'Failed to create diagram image');
+  if (!res.ok) await throwApiError(res, 'Failed to create diagram image');
   return res.json();
 }
 
@@ -82,11 +74,11 @@ export async function updateDiagramImage(projectId: number, id: number, data: Pa
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) await throwWithDetail(res, 'Failed to update diagram image');
+  if (!res.ok) await throwApiError(res, 'Failed to update diagram image');
   return res.json();
 }
 
 export async function deleteDiagramImage(projectId: number, id: number): Promise<void> {
   const res = await fetch(`${base(projectId)}/images/${id}`, { method: 'DELETE' });
-  if (!res.ok) await throwWithDetail(res, 'Failed to delete diagram image');
+  if (!res.ok) await throwApiError(res, 'Failed to delete diagram image');
 }

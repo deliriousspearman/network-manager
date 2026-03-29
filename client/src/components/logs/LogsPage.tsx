@@ -1,9 +1,11 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchActivityLogs } from '../../api/activityLogs';
+import { fetchActivityLogsPaged } from '../../api/activityLogs';
 import { fetchSettings } from '../../api/settings';
 import { useProject } from '../../contexts/ProjectContext';
 import type { ActivityLog } from '../../api/activityLogs';
+import LoadingSpinner from '../ui/LoadingSpinner';
+import Pagination from '../ui/Pagination';
 
 const RESOURCE_LABELS: Record<string, string> = {
   device: 'Device',
@@ -33,6 +35,8 @@ const ACTION_COLORS: Record<string, string> = {
   imported: '#a855f7',
   captured: '#14b8a6',
 };
+
+const PAGE_LIMIT = 50;
 
 function formatTimestamp(ts: string, timezone: string): string {
   const date = new Date(ts + 'Z');
@@ -70,14 +74,21 @@ export default function LogsPage() {
   const { projectId } = useProject();
   const [filterResource, setFilterResource] = useState('');
   const [filterAction, setFilterAction] = useState('');
-  const [pageSize, setPageSize] = useState<number | 'all'>(50);
   const [page, setPage] = useState(1);
 
-  useEffect(() => { setPage(1); }, [filterResource, filterAction, pageSize]);
+  const handleFilterResource = useCallback((value: string) => {
+    setFilterResource(value);
+    setPage(1);
+  }, []);
 
-  const { data: logs, isLoading } = useQuery({
-    queryKey: ['activity-logs', projectId],
-    queryFn: () => fetchActivityLogs(projectId),
+  const handleFilterAction = useCallback((value: string) => {
+    setFilterAction(value);
+    setPage(1);
+  }, []);
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['activity-logs', projectId, 'paged', page, PAGE_LIMIT, filterResource, filterAction],
+    queryFn: () => fetchActivityLogsPaged(projectId, { page, limit: PAGE_LIMIT, resource_type: filterResource, action: filterAction }),
     staleTime: 10_000,
   });
 
@@ -89,24 +100,9 @@ export default function LogsPage() {
 
   const timezone = settings?.timezone ?? 'UTC';
 
-  const filtered = useMemo(() => {
-    if (!logs) return [];
-    return logs.filter(l => {
-      if (filterResource && l.resource_type !== filterResource) return false;
-      if (filterAction && l.action !== filterAction) return false;
-      return true;
-    });
-  }, [logs, filterResource, filterAction]);
+  if (isLoading && !data) return <LoadingSpinner />;
 
-  const totalPages = pageSize === 'all' ? 1 : Math.ceil(filtered.length / pageSize);
-  const paginated = pageSize === 'all'
-    ? filtered
-    : filtered.slice((page - 1) * pageSize, page * pageSize);
-
-  if (isLoading) return <div className="loading">Loading...</div>;
-
-  const usedResources = [...new Set(logs?.map(l => l.resource_type) ?? [])].sort();
-  const usedActions = [...new Set(logs?.map(l => l.action) ?? [])].sort();
+  const items = data?.items ?? [];
 
   const selectStyle: React.CSSProperties = {
     padding: '0.35rem 0.5rem',
@@ -123,79 +119,71 @@ export default function LogsPage() {
       <div className="page-header">
         <h2>Activity Log</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <select value={filterResource} onChange={e => setFilterResource(e.target.value)} style={selectStyle}>
+          <select value={filterResource} onChange={e => handleFilterResource(e.target.value)} style={selectStyle}>
             <option value="">All resources</option>
-            {usedResources.map(r => <option key={r} value={r}>{RESOURCE_LABELS[r] ?? r}</option>)}
+            {Object.entries(RESOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          <select value={filterAction} onChange={e => setFilterAction(e.target.value)} style={selectStyle}>
+          <select value={filterAction} onChange={e => handleFilterAction(e.target.value)} style={selectStyle}>
             <option value="">All actions</option>
-            {usedActions.map(a => <option key={a} value={a}>{ACTION_LABELS[a] ?? a}</option>)}
-          </select>
-          <select value={pageSize} onChange={e => setPageSize(e.target.value === 'all' ? 'all' : Number(e.target.value))} style={selectStyle}>
-            <option value={50}>50 per page</option>
-            <option value={100}>100 per page</option>
-            <option value={200}>200 per page</option>
-            <option value="all">All</option>
+            {Object.entries(ACTION_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         </div>
       </div>
 
-      {!filtered.length ? (
+      {!isLoading && items.length === 0 ? (
         <div className="empty-state">No activity yet. Events will appear here as you use the app.</div>
       ) : (
-        <div className="card table-container">
-          <table>
-            <thead>
-              <tr>
-                <th>Timestamp</th>
-                <th>Project</th>
-                <th>Resource</th>
-                <th>Action</th>
-                <th>Name</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginated.map((log: ActivityLog) => (
-                <tr key={log.id}>
-                  <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                    {formatTimestamp(log.created_at, timezone)}
-                  </td>
-                  <td style={{ fontSize: '0.85rem' }}>
-                    {log.project_name ?? '—'}
-                  </td>
-                  <td>
-                    {log.project_id === null ? (
-                      <span className="badge" style={{ background: 'var(--color-text-secondary)', color: '#fff', opacity: 0.8 }}>Global</span>
-                    ) : (
-                      <span className="badge" style={{ background: 'var(--color-border)', color: 'var(--color-text)' }}>
-                        {RESOURCE_LABELS[log.resource_type] ?? log.resource_type}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    <span className="badge" style={{ background: ACTION_COLORS[log.action] ?? 'var(--color-border)', color: '#fff' }}>
-                      {ACTION_LABELS[log.action] ?? log.action}
-                    </span>
-                  </td>
-                  <td style={{ fontWeight: log.resource_name ? 500 : 'normal', color: log.resource_name ? 'var(--color-text)' : 'var(--color-text-secondary)' }}>
-                    {log.resource_name ?? '—'}
-                  </td>
-                  <td style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                    {renderDetails(log)}
-                  </td>
+        <>
+          <div className="card table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Project</th>
+                  <th>Resource</th>
+                  <th>Action</th>
+                  <th>Name</th>
+                  <th>Details</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          {pageSize !== 'all' && totalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '1rem', padding: '0.75rem', fontSize: '0.85rem' }}>
-              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>← Prev</button>
-              <span style={{ color: 'var(--color-text-secondary)' }}>Page {page} of {totalPages}</span>
-              <button className="btn btn-secondary btn-sm" onClick={() => setPage(p => p + 1)} disabled={page === totalPages}>Next →</button>
-            </div>
+              </thead>
+              <tbody>
+                {items.map((log: ActivityLog) => (
+                  <tr key={log.id}>
+                    <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                      {formatTimestamp(log.created_at, timezone)}
+                    </td>
+                    <td style={{ fontSize: '0.85rem' }}>
+                      {log.project_name ?? '—'}
+                    </td>
+                    <td>
+                      {log.project_id === null ? (
+                        <span className="badge" style={{ background: 'var(--color-text-secondary)', color: '#fff', opacity: 0.8 }}>Global</span>
+                      ) : (
+                        <span className="badge" style={{ background: 'var(--color-border)', color: 'var(--color-text)' }}>
+                          {RESOURCE_LABELS[log.resource_type] ?? log.resource_type}
+                        </span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="badge" style={{ background: ACTION_COLORS[log.action] ?? 'var(--color-border)', color: '#fff' }}>
+                        {ACTION_LABELS[log.action] ?? log.action}
+                      </span>
+                    </td>
+                    <td style={{ fontWeight: log.resource_name ? 500 : 'normal', color: log.resource_name ? 'var(--color-text)' : 'var(--color-text-secondary)' }}>
+                      {log.resource_name ?? '—'}
+                    </td>
+                    <td style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                      {renderDetails(log)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data && (
+            <Pagination page={data.page} totalPages={data.totalPages} total={data.total} limit={data.limit} onChange={setPage} />
           )}
-        </div>
+        </>
       )}
     </div>
   );

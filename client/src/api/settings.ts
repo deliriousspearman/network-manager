@@ -1,8 +1,9 @@
 import type { AppSettings } from 'shared/types';
+import { throwApiError } from '../utils/apiError';
 
 export async function fetchSettings(): Promise<AppSettings> {
   const res = await fetch('/api/settings');
-  if (!res.ok) throw new Error('Failed to fetch settings');
+  if (!res.ok) await throwApiError(res, 'Failed to fetch settings');
   return res.json();
 }
 
@@ -12,6 +13,6 @@ export async function updateSettings(data: Partial<AppSettings>): Promise<AppSet
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) throw new Error('Failed to update settings');
+  if (!res.ok) await throwApiError(res, 'Failed to update settings');
   return res.json();
 }

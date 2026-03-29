@@ -128,7 +128,7 @@ export function hierarchicalLayout(nodes: Node[], edges: Edge[]): Node[] {
     const devicePos = positioned.get(n.id);
     if (devicePos) {
       // Remove parentId for hierarchical layout (don't nest inside subnets)
-      const { parentId, extent, ...rest } = n as any;
+      const { parentId: _p, extent: _e, ...rest } = n;
       return { ...rest, position: devicePos };
     }
     const subnetPos = subnetPositioned.get(n.id);

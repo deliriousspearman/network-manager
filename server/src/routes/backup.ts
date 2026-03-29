@@ -12,6 +12,7 @@ function inParams(ids: number[]) {
 router.get('/export', (_req, res) => {
   const includeCommandOutputs = _req.query.includeCommandOutputs !== 'false';
   const includeCredentials = _req.query.includeCredentials !== 'false';
+  const includeImages = _req.query.includeImages !== 'false';
   const projectId = res.locals.projectId as number | undefined;
 
   let data: Record<string, unknown[]>;
@@ -40,9 +41,9 @@ router.get('/export', (_req, res) => {
       parsed_routes: [],
       parsed_services: [],
       credentials: includeCredentials ? db.prepare('SELECT * FROM credentials WHERE project_id = ?').all(projectId) : [],
-      device_type_icons: db.prepare('SELECT * FROM device_type_icons WHERE project_id = ?').all(projectId),
-      device_icon_overrides: deviceIds.length ? db.prepare(`SELECT * FROM device_icon_overrides WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
-      diagram_images: db.prepare('SELECT * FROM diagram_images WHERE project_id = ?').all(projectId),
+      device_type_icons: includeImages ? db.prepare('SELECT * FROM device_type_icons WHERE project_id = ?').all(projectId) : [],
+      device_icon_overrides: includeImages && deviceIds.length ? db.prepare(`SELECT * FROM device_icon_overrides WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
+      diagram_images: includeImages ? db.prepare('SELECT * FROM diagram_images WHERE project_id = ?').all(projectId) : [],
     };
 
     if (includeCommandOutputs) {
@@ -80,26 +81,34 @@ router.get('/export', (_req, res) => {
       parsed_routes: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_routes').all() : [],
       parsed_services: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_services').all() : [],
       credentials: includeCredentials ? db.prepare('SELECT * FROM credentials').all() : [],
-      device_type_icons: db.prepare('SELECT * FROM device_type_icons').all(),
-      device_icon_overrides: db.prepare('SELECT * FROM device_icon_overrides').all(),
-      diagram_images: db.prepare('SELECT * FROM diagram_images').all(),
+      device_type_icons: includeImages ? db.prepare('SELECT * FROM device_type_icons').all() : [],
+      device_icon_overrides: includeImages ? db.prepare('SELECT * FROM device_icon_overrides').all() : [],
+      diagram_images: includeImages ? db.prepare('SELECT * FROM diagram_images').all() : [],
     };
   }
 
-  const backup = {
+  const filename = `network-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Type', 'application/json');
+  logActivity({ projectId: projectId ?? null, action: 'exported', resourceType: 'backup', details: { scope: projectId ? 'project' : 'full-site', includeCommandOutputs, includeCredentials, includeImages } });
+
+  // Stream JSON to avoid holding entire export in memory
+  const meta = JSON.stringify({
     version: projectId ? 2 : 3,
     scope: projectId ? 'project' : 'full',
     exportedAt: new Date().toISOString(),
     includesCommandOutputs: includeCommandOutputs,
     includesCredentials: includeCredentials,
-    data,
-  };
-
-  const filename = `network-backup-${new Date().toISOString().slice(0, 10)}.json`;
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Content-Type', 'application/json');
-  logActivity({ projectId: projectId ?? null, action: 'exported', resourceType: 'backup', details: { scope: projectId ? 'project' : 'full-site', includesCommandOutputs: includeCommandOutputs, includesCredentials: includeCredentials } });
-  res.json(backup);
+    includesImages: includeImages,
+  });
+  // Write opening: merge meta fields + "data":{...tables...}}
+  const metaObj = meta.slice(0, -1); // remove trailing }
+  res.write(`${metaObj},"data":`);
+  res.write(JSON.stringify(data));
+  res.write('}');
+  res.end();
+  // Allow data to be GC'd
+  data = {} as any;
 });
 
 router.post('/import', (req, res) => {
@@ -133,18 +142,21 @@ router.post('/import', (req, res) => {
 
   // Sanitize all string values in imported data: truncate to 10000 chars max
   const MAX_STR = 10000;
-  function sanitizeRow(row: any) {
+  const truncatedFields: string[] = [];
+  function sanitizeRow(row: any, tableName: string) {
     if (!row || typeof row !== 'object') return row;
     for (const [k, v] of Object.entries(row)) {
       if (typeof v === 'string' && v.length > MAX_STR) {
         row[k] = v.slice(0, MAX_STR);
+        const label = `${tableName}.${k}` + (row.id ? ` (id=${row.id})` : '');
+        if (truncatedFields.length < 50) truncatedFields.push(label);
       }
     }
     return row;
   }
   for (const key of arrayKeys) {
     if (Array.isArray(data[key])) {
-      data[key] = data[key].map(sanitizeRow);
+      data[key] = data[key].map((row: any) => sanitizeRow(row, key));
     }
   }
 
@@ -261,8 +273,20 @@ router.post('/import', (req, res) => {
       }
 
       if (data.connections?.length) {
+        // Validate referential integrity: collect valid device/subnet IDs
+        const validDeviceIds = new Set(
+          (db.prepare(`SELECT id FROM devices WHERE project_id = ?`).all(projectId ?? targetProjectId) as { id: number }[]).map(r => r.id)
+        );
+        const validSubnetIds = new Set(
+          (db.prepare(`SELECT id FROM subnets WHERE project_id = ?`).all(projectId ?? targetProjectId) as { id: number }[]).map(r => r.id)
+        );
         const stmt = db.prepare('INSERT INTO connections (id, source_device_id, target_device_id, label, connection_type, edge_type, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
         for (const row of data.connections) {
+          // Skip connections with invalid references
+          if (row.source_device_id && !validDeviceIds.has(row.source_device_id)) continue;
+          if (row.target_device_id && !validDeviceIds.has(row.target_device_id)) continue;
+          if (row.source_subnet_id && !validSubnetIds.has(row.source_subnet_id)) continue;
+          if (row.target_subnet_id && !validSubnetIds.has(row.target_subnet_id)) continue;
           stmt.run(row.id, row.source_device_id, row.target_device_id, row.label ?? null, row.connection_type ?? null, row.edge_type ?? null, projectId ?? row.project_id ?? targetProjectId, row.created_at);
         }
       }
@@ -374,7 +398,7 @@ router.post('/import', (req, res) => {
     })();
 
     logActivity({ projectId: projectId ?? null, action: 'imported', resourceType: 'backup', details: { scope: projectId ? 'project' : 'full-site', version: backup.version } });
-    res.json({ success: true });
+    res.json({ success: true, truncatedFields });
   } catch (err: unknown) {
     console.error('Backup import error:', err);
     res.status(500).json({ error: 'Import failed' });

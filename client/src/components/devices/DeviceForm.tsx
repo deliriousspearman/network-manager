@@ -6,6 +6,7 @@ import { fetchDevice, createDevice, updateDevice, fetchHypervisors } from '../..
 import { fetchSubnets } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
 import type { DeviceType, HostingType } from 'shared/types';
+import { isValidIp } from '../../utils/validation';
 
 const DEFAULT_SECTION_ORDER = ['overview', 'credentials', 'ports', 'notes', 'gallery', 'attachments', 'command_outputs'];
 
@@ -137,7 +138,7 @@ export default function DeviceForm() {
     if (field === 'is_primary' && value === true) {
       updated.forEach(ip => ip.is_primary = false);
     }
-    (updated[idx] as any)[field] = value;
+    Object.assign(updated[idx], { [field]: value });
     setIps(updated);
   };
 
@@ -163,8 +164,17 @@ export default function DeviceForm() {
   };
   const handleDragEnd = () => { dragIndex.current = null; };
 
+  const [validationError, setValidationError] = useState('');
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    setValidationError('');
+    const filledIps = ips.filter(ip => ip.ip_address.trim());
+    const invalidIp = filledIps.find(ip => !isValidIp(ip.ip_address.trim()));
+    if (invalidIp) {
+      setValidationError(`Invalid IP address: ${invalidIp.ip_address}`);
+      return;
+    }
     mutation.mutate({
       name, type,
       mac_address: macAddress || undefined,
@@ -179,6 +189,7 @@ export default function DeviceForm() {
       av: av || undefined,
       status: status || undefined,
       section_config: JSON.stringify(sectionConfig),
+      updated_at: isEdit ? device?.updated_at : undefined,
     });
   };
 
@@ -311,7 +322,6 @@ export default function DeviceForm() {
                   type="radio"
                   checked={ip.is_primary}
                   onChange={() => updateIp(idx, 'is_primary', true)}
-                  style={{ width: 'auto' }}
                 /> Primary
               </label>
               {ips.length > 1 && (
@@ -379,6 +389,11 @@ export default function DeviceForm() {
           </div>
         </fieldset>
 
+        {(validationError || mutation.isError) && (
+          <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+            {validationError || (mutation.error as Error)?.message}
+          </div>
+        )}
         <div className="actions" style={{ marginTop: '1rem' }}>
           <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
             {mutation.isPending ? 'Saving...' : (isEdit ? 'Save Changes' : 'Create Device')}

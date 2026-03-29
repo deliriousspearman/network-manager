@@ -25,15 +25,17 @@ router.get('/', (_req, res) => {
 
 router.post('/', (req, res) => {
   const projectId = res.locals.projectId;
-  const { source_device_id, target_device_id, label, connection_type, source_handle, target_handle, source_port, target_port } = req.body as CreateConnectionRequest;
+  const { source_device_id, target_device_id, label, connection_type, source_handle, target_handle, source_port, target_port, edge_type, edge_color, edge_width } = req.body as CreateConnectionRequest;
   const source_subnet_id = req.body.source_subnet_id ?? null;
   const target_subnet_id = req.body.target_subnet_id ?? null;
   const result = db.prepare(
-    'INSERT INTO connections (source_device_id, target_device_id, source_subnet_id, target_subnet_id, label, connection_type, project_id, source_handle, target_handle, source_port, target_port) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    'INSERT INTO connections (source_device_id, target_device_id, source_subnet_id, target_subnet_id, label, connection_type, edge_type, edge_color, edge_width, project_id, source_handle, target_handle, source_port, target_port) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     source_device_id ?? null, target_device_id ?? null,
     source_subnet_id, target_subnet_id,
-    optionalString(label, 500), optionalString(connection_type, 50) ?? 'ethernet', projectId,
+    optionalString(label, 500), optionalString(connection_type, 50) ?? 'ethernet',
+    optionalString(edge_type, 50), optionalString(edge_color, 50), edge_width != null ? Number(edge_width) : null,
+    projectId,
     optionalString(source_handle, 100), optionalString(target_handle, 100),
     optionalString(source_port, 100), optionalString(target_port, 100),
   );

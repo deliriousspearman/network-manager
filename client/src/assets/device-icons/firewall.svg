@@ -1,26 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
   <!-- Brick wall -->
-  <rect x="6" y="14" width="52" height="36" rx="2"/>
+  <rect x="12" y="28" width="104" height="72" rx="4"/>
   <!-- Brick rows -->
-  <line x1="6" y1="23" x2="58" y2="23"/>
-  <line x1="6" y1="32" x2="58" y2="32"/>
-  <line x1="6" y1="41" x2="58" y2="41"/>
+  <line x1="12" y1="46" x2="116" y2="46"/>
+  <line x1="12" y1="64" x2="116" y2="64"/>
+  <line x1="12" y1="82" x2="116" y2="82"/>
   <!-- Brick columns row 1 -->
-  <line x1="20" y1="14" x2="20" y2="23"/>
-  <line x1="38" y1="14" x2="38" y2="23"/>
-  <line x1="52" y1="14" x2="52" y2="23"/>
+  <line x1="40" y1="28" x2="40" y2="46"/>
+  <line x1="76" y1="28" x2="76" y2="46"/>
+  <line x1="104" y1="28" x2="104" y2="46"/>
   <!-- Brick columns row 2 -->
-  <line x1="14" y1="23" x2="14" y2="32"/>
-  <line x1="32" y1="23" x2="32" y2="32"/>
-  <line x1="46" y1="23" x2="46" y2="32"/>
+  <line x1="28" y1="46" x2="28" y2="64"/>
+  <line x1="64" y1="46" x2="64" y2="64"/>
+  <line x1="92" y1="46" x2="92" y2="64"/>
   <!-- Brick columns row 3 -->
-  <line x1="20" y1="32" x2="20" y2="41"/>
-  <line x1="38" y1="32" x2="38" y2="41"/>
-  <line x1="52" y1="32" x2="52" y2="41"/>
+  <line x1="40" y1="64" x2="40" y2="82"/>
+  <line x1="76" y1="64" x2="76" y2="82"/>
+  <line x1="104" y1="64" x2="104" y2="82"/>
   <!-- Brick columns row 4 -->
-  <line x1="14" y1="41" x2="14" y2="50"/>
-  <line x1="32" y1="41" x2="32" y2="50"/>
-  <line x1="46" y1="41" x2="46" y2="50"/>
+  <line x1="28" y1="82" x2="28" y2="100"/>
+  <line x1="64" y1="82" x2="64" y2="100"/>
+  <line x1="92" y1="82" x2="92" y2="100"/>
   <!-- Shield overlay -->
-  <path d="M32 20 L42 25 L42 35 C42 40 37 44 32 46 C27 44 22 40 22 35 L22 25 Z" stroke-width="2.5"/>
+  <path d="M64 40 L84 50 L84 70 C84 80 74 88 64 92 C54 88 44 80 44 70 L44 50 Z" stroke-width="5"/>
 </svg>

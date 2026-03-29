@@ -1,4 +1,5 @@
 import { projectBase } from './base';
+import { throwApiError } from '../utils/apiError';
 
 export async function exportBackup(projectId: number, includeCommandOutputs: boolean, includeCredentials: boolean): Promise<void> {
   const params = new URLSearchParams();
@@ -6,7 +7,7 @@ export async function exportBackup(projectId: number, includeCommandOutputs: boo
   if (!includeCredentials) params.set('includeCredentials', 'false');
 
   const res = await fetch(`${projectBase(projectId, 'backup')}/export?${params}`);
-  if (!res.ok) throw new Error('Export failed');
+  if (!res.ok) await throwApiError(res, 'Export failed');
 
   const blob = await res.blob();
   const date = new Date().toISOString().slice(0, 10);
@@ -24,10 +25,7 @@ export async function importBackup(projectId: number, data: unknown): Promise<vo
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'Import failed');
-  }
+  if (!res.ok) await throwApiError(res, 'Import failed');
 }
 
 export async function exportFullBackup(includeCommandOutputs: boolean, includeCredentials: boolean): Promise<void> {
@@ -36,7 +34,7 @@ export async function exportFullBackup(includeCommandOutputs: boolean, includeCr
   if (!includeCredentials) params.set('includeCredentials', 'false');
 
   const res = await fetch(`/api/backup/export?${params}`);
-  if (!res.ok) throw new Error('Export failed');
+  if (!res.ok) await throwApiError(res, 'Export failed');
 
   const blob = await res.blob();
   const date = new Date().toISOString().slice(0, 10);
@@ -54,8 +52,5 @@ export async function importFullBackup(data: unknown): Promise<void> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'Import failed');
-  }
+  if (!res.ok) await throwApiError(res, 'Import failed');
 }

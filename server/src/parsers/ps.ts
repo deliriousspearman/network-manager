@@ -12,9 +12,9 @@ export function parsePs(raw: string): PsRow[] {
 
   const header = lines[0];
   // Find column positions from the header
-  const pidIdx = header.indexOf('PID');
-  const cpuIdx = header.indexOf('%CPU');
-  const memIdx = header.indexOf('%MEM');
+  const _pidIdx = header.indexOf('PID');
+  const _cpuIdx = header.indexOf('%CPU');
+  const _memIdx = header.indexOf('%MEM');
   const commandIdx = header.indexOf('COMMAND') !== -1 ? header.indexOf('COMMAND') : header.indexOf('CMD');
 
   if (commandIdx === -1) return [];

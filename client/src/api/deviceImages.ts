@@ -1,4 +1,5 @@
 import type { DeviceImage } from 'shared/types';
+import { throwApiError } from '../utils/apiError';
 
 function base(projectId: number, deviceId: number) {
   return `/api/projects/${projectId}/devices/${deviceId}/images`;
@@ -10,7 +11,7 @@ export function imageUrl(projectId: number, deviceId: number, imageId: number): 
 
 export async function fetchDeviceImages(projectId: number, deviceId: number): Promise<DeviceImage[]> {
   const res = await fetch(base(projectId, deviceId));
-  if (!res.ok) throw new Error('Failed to fetch images');
+  if (!res.ok) await throwApiError(res, 'Failed to fetch images');
   return res.json();
 }
 
@@ -24,11 +25,11 @@ export async function uploadDeviceImage(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  if (!res.ok) throw new Error('Failed to upload image');
+  if (!res.ok) await throwApiError(res, 'Failed to upload image');
   return res.json();
 }
 
 export async function deleteDeviceImage(projectId: number, deviceId: number, imageId: number): Promise<void> {
   const res = await fetch(`${base(projectId, deviceId)}/${imageId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('Failed to delete image');
+  if (!res.ok) await throwApiError(res, 'Failed to delete image');
 }

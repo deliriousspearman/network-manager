@@ -14,20 +14,20 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
-
 } from 'lucide-react';
 import { ProjectContext } from '../../contexts/ProjectContext';
 import { fetchProjects } from '../../api/projects';
 import ProjectSwitcher from './ProjectSwitcher';
+import { getStorage, setStorage } from '../../utils/storage';
 
 function getInitialTheme(): 'light' | 'dark' {
-  const stored = localStorage.getItem('theme');
+  const stored = getStorage('theme');
   if (stored === 'dark' || stored === 'light') return stored;
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 function getInitialCollapsed(): boolean {
-  return localStorage.getItem('sidebar-collapsed') === 'true';
+  return getStorage('sidebar-collapsed') === 'true';
 }
 
 export default function Sidebar() {
@@ -45,11 +45,11 @@ export default function Sidebar() {
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
+    setStorage('theme', theme);
   }, [theme]);
 
   useEffect(() => {
-    localStorage.setItem('sidebar-collapsed', String(collapsed));
+    setStorage('sidebar-collapsed', String(collapsed));
     document.documentElement.setAttribute('data-sidebar-collapsed', String(collapsed));
   }, [collapsed]);
 
@@ -161,6 +161,9 @@ export default function Sidebar() {
           <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
         )}
       </button>
+      <div style={{ marginTop: 'auto', padding: '0.25rem 0 0.4rem', fontSize: '0.65rem', color: '#999', textAlign: 'center' }}>
+        v0.3.0
+      </div>
     </aside>
   );
 }

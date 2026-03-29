@@ -22,6 +22,7 @@ import devicePortsRouter from './routes/devicePorts.js';
 import deviceAttachmentsRouter from './routes/deviceAttachments.js';
 import adminLogsRouter from './routes/adminLogs.js';
 import diagramIconsRouter from './routes/diagramIcons.js';
+import imageLibraryRouter from './routes/imageLibrary.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -66,7 +67,7 @@ app.use('/api/projects/:projectId/devices', projectScope, devicesRouter);
 app.use('/api/projects/:projectId/subnets', projectScope, subnetsRouter);
 app.use('/api/projects/:projectId/connections', projectScope, connectionsRouter);
 app.use('/api/projects/:projectId/command-outputs', projectScope, commandOutputsRouter);
-app.use('/api/projects/:projectId/diagram', projectScope, diagramRouter);
+app.use('/api/projects/:projectId/diagram', projectScope, largeBody, diagramRouter);
 app.use('/api/projects/:projectId/highlight-rules', projectScope, highlightRulesRouter);
 app.use('/api/projects/:projectId/credentials', projectScope, largeBody, credentialsRouter);
 app.use('/api/projects/:projectId/device-subnets', projectScope, deviceSubnetsRouter);
@@ -76,6 +77,7 @@ app.use('/api/projects/:projectId/devices/:deviceId/images', projectScope, large
 app.use('/api/projects/:projectId/devices/:deviceId/ports', projectScope, devicePortsRouter);
 app.use('/api/projects/:projectId/devices/:deviceId/attachments', projectScope, largeBody, deviceAttachmentsRouter);
 app.use('/api/projects/:projectId/diagram-icons', projectScope, largeBody, diagramIconsRouter);
+app.use('/api/projects/:projectId/image-library', projectScope, largeBody, imageLibraryRouter);
 
 // Serve client in production
 if (process.env.NODE_ENV === 'production') {

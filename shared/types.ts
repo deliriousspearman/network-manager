@@ -284,6 +284,15 @@ export interface DiagramImage {
   created_at: string;
 }
 
+export interface ImageLibraryItem {
+  id: number;
+  project_id: number;
+  filename: string;
+  mime_type: string;
+  size: number;
+  created_at: string;
+}
+
 export interface DiagramData {
   devices: DiagramDeviceNode[];
   subnets: DiagramSubnetNode[];
@@ -332,6 +341,9 @@ export interface CreateConnectionRequest {
   target_subnet_id?: number;
   label?: string;
   connection_type?: string;
+  edge_type?: string;
+  edge_color?: string;
+  edge_width?: number;
   source_handle?: string;
   target_handle?: string;
   source_port?: string;
@@ -388,6 +400,18 @@ export interface Credential {
 export interface CredentialWithDevice extends Credential {
   device_name: string | null;
   has_file: boolean;
+}
+
+export interface ActivityLog {
+  id: number;
+  project_id: number | null;
+  project_name: string | null;
+  action: string;
+  resource_type: string;
+  resource_id: number | null;
+  resource_name: string | null;
+  details: string | null;
+  created_at: string;
 }
 
 export interface CreateCredentialRequest {

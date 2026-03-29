@@ -1,87 +1,125 @@
-import { useState, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronUp, ChevronDown } from 'lucide-react';
-import { fetchSubnets } from '../../api/subnets';
+import { ChevronUp, ChevronDown, Search, Download } from 'lucide-react';
+import { fetchSubnetsPaged } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
+import LoadingSpinner from '../ui/LoadingSpinner';
+import Pagination from '../ui/Pagination';
 import type { Subnet } from 'shared/types';
 
 type SortCol = 'name' | 'cidr' | 'vlan_id' | 'description';
 
+const PAGE_LIMIT = 50;
+
 export default function SubnetList() {
   const { projectId, project } = useProject();
   const navigate = useNavigate();
-  const { data: subnets, isLoading } = useQuery({ queryKey: ['subnets', projectId], queryFn: () => fetchSubnets(projectId) });
-  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [sortCol, setSortCol] = useState<SortCol>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
 
-  function handleSort(col: SortCol) {
-    if (sortCol === col) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortCol(col); setSortDir('asc'); }
-  }
+  const { data, isLoading } = useQuery({
+    queryKey: ['subnets', projectId, 'paged', page, PAGE_LIMIT, search, sortCol, sortDir],
+    queryFn: () => fetchSubnetsPaged(projectId, { page, limit: PAGE_LIMIT, search, sort: sortCol, order: sortDir }),
+  });
+
+  const handleSort = useCallback((col: SortCol) => {
+    if (sortCol === col) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
+    setPage(1);
+  }, [sortCol]);
+
+  const handleSearch = useCallback((value: string) => {
+    setSearch(value);
+    setPage(1);
+  }, []);
 
   function SortIcon({ col }: { col: SortCol }) {
     if (sortCol !== col) return null;
     return sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />;
   }
 
-  const sorted = useMemo(() => {
-    if (!subnets || !sortCol) return subnets ?? [];
-    return [...subnets].sort((a, b) => {
-      let cmp = 0;
-      if (sortCol === 'vlan_id') {
-        const av = a.vlan_id, bv = b.vlan_id;
-        if (av == null && bv != null) return 1;
-        if (av != null && bv == null) return -1;
-        cmp = (av ?? 0) - (bv ?? 0);
-      } else {
-        const av = (a[sortCol] ?? '') as string;
-        const bv = (b[sortCol] ?? '') as string;
-        if (!av && bv) return 1;
-        if (av && !bv) return -1;
-        cmp = av.localeCompare(bv, undefined, { sensitivity: 'base' });
-      }
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
-  }, [subnets, sortCol, sortDir]);
+  async function exportCsv() {
+    const { fetchSubnetsPaged: fp } = await import('../../api/subnets');
+    const all = await fp(projectId, { page: 1, limit: 9999, search, sort: sortCol, order: sortDir });
+    const rows = [['Name', 'CIDR', 'VLAN ID', 'Description']];
+    for (const s of all.items) {
+      rows.push([s.name, s.cidr, s.vlan_id != null ? String(s.vlan_id) : '', s.description ?? '']);
+    }
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    a.download = 'subnets.csv';
+    a.click();
+  }
 
-  if (isLoading) return <div className="loading">Loading...</div>;
+  if (isLoading && !data) return <LoadingSpinner />;
 
   const base = `/p/${project.slug}`;
   const thStyle: React.CSSProperties = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' };
+  const items = data?.items ?? [];
 
   return (
     <div>
       <div className="page-header">
         <h2>Subnets</h2>
-        <Link to={`${base}/subnets/new`} className="btn btn-primary">+ Add Subnet</Link>
+        <div className="flex items-center gap-2">
+          <div className="diagram-search-wrap">
+            <Search size={14} className="diagram-search-icon" />
+            <input
+              className="diagram-search"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search"
+            />
+          </div>
+          {data && data.total > 0 && (
+            <button className="btn btn-secondary" onClick={exportCsv} title="Export CSV">
+              <Download size={14} />
+            </button>
+          )}
+          <Link to={`${base}/subnets/new`} className="btn btn-primary">+ Add Subnet</Link>
+        </div>
       </div>
 
-      {!subnets?.length ? (
+      {!isLoading && data?.total === 0 && !search ? (
         <div className="empty-state">No subnets yet. Add your first subnet to organize devices.</div>
+      ) : !isLoading && items.length === 0 ? (
+        <div className="empty-state">No subnets match your search.</div>
       ) : (
-        <div className="card table-container">
-          <table>
-            <thead>
-              <tr>
-                <th style={thStyle} onClick={() => handleSort('name')}>Name <SortIcon col="name" /></th>
-                <th style={thStyle} onClick={() => handleSort('cidr')}>CIDR <SortIcon col="cidr" /></th>
-                <th style={thStyle} onClick={() => handleSort('vlan_id')}>VLAN ID <SortIcon col="vlan_id" /></th>
-                <th style={thStyle} onClick={() => handleSort('description')}>Description <SortIcon col="description" /></th>
-              </tr>
-            </thead>
-            <tbody>
-              {sorted.map((s: Subnet) => (
-                <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`${base}/subnets/${s.id}`)}>
-                  <td>{s.name}</td>
-                  <td>{s.cidr}</td>
-                  <td>{s.vlan_id || '—'}</td>
-                  <td>{s.description || '—'}</td>
+        <>
+          <div className="card table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th style={thStyle} onClick={() => handleSort('name')}>Name <SortIcon col="name" /></th>
+                  <th style={thStyle} onClick={() => handleSort('cidr')}>CIDR <SortIcon col="cidr" /></th>
+                  <th style={thStyle} onClick={() => handleSort('vlan_id')}>VLAN ID <SortIcon col="vlan_id" /></th>
+                  <th style={thStyle} onClick={() => handleSort('description')}>Description <SortIcon col="description" /></th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </thead>
+              <tbody>
+                {items.map((s: Subnet) => (
+                  <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`${base}/subnets/${s.id}`)}>
+                    <td>{s.name}</td>
+                    <td>{s.cidr}</td>
+                    <td>{s.vlan_id || '—'}</td>
+                    <td>{s.description || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {data && (
+            <Pagination page={data.page} totalPages={data.totalPages} total={data.total} limit={data.limit} onChange={setPage} />
+          )}
+        </>
       )}
     </div>
   );
