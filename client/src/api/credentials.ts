@@ -9,13 +9,25 @@ export async function fetchCredentials(projectId: number): Promise<CredentialWit
   return res.json();
 }
 
-export async function fetchCredentialsPaged(projectId: number, params: PagedParams = {}): Promise<PagedResult<CredentialWithDevice>> {
+export async function fetchCredentialsPaged(projectId: number, params: PagedParams & { used?: string; hidden?: string } = {}): Promise<PagedResult<CredentialWithDevice>> {
   const q = new URLSearchParams({ page: String(params.page ?? 1), limit: String(params.limit ?? 50) });
   if (params.search) q.set('search', params.search);
   if (params.sort) q.set('sort', params.sort);
   if (params.order) q.set('order', params.order);
+  if (params.used) q.set('used', params.used);
+  if (params.hidden) q.set('hidden', params.hidden);
   const res = await fetch(`${projectBase(projectId, 'credentials')}?${q}`);
   if (!res.ok) await throwApiError(res, 'Failed to fetch credentials');
+  return res.json();
+}
+
+export async function toggleCredentialHidden(projectId: number, id: number, hidden: boolean): Promise<CredentialWithDevice> {
+  const res = await fetch(`${projectBase(projectId, 'credentials')}/${id}/hidden`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hidden }),
+  });
+  if (!res.ok) await throwApiError(res, 'Failed to update credential');
   return res.json();
 }
 

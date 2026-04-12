@@ -1,14 +1,20 @@
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2, Settings as SettingsIcon, Monitor, Bot, Highlighter } from 'lucide-react';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
+import Tabs, { type TabDef } from '../ui/Tabs';
+import PageHeader from '../layout/PageHeader';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchHighlightRules, createHighlightRule, updateHighlightRule, deleteHighlightRule } from '../../api/highlightRules';
 import { exportBackup, importBackup } from '../../api/backup';
-import { fetchTypeDefaults, typeDefaultIconUrl, uploadTypeDefault, deleteTypeDefault } from '../../api/diagramIcons';
+import {
+  fetchTypeDefaults, typeDefaultIconUrl, uploadTypeDefault, deleteTypeDefault,
+  fetchAgentTypeDefaults, agentTypeDefaultIconUrl, uploadAgentTypeDefault, deleteAgentTypeDefault,
+} from '../../api/diagramIcons';
 import { useProject } from '../../contexts/ProjectContext';
 import type { HighlightRule } from 'shared/types';
-import { DEVICE_TYPE_LABELS } from 'shared/types';
+import { DEVICE_TYPE_LABELS, AGENT_TYPES, AGENT_TYPE_LABELS } from 'shared/types';
 
 import serverIcon from '../../assets/device-icons/server.svg?url';
 import workstationIcon from '../../assets/device-icons/workstation.svg?url';
@@ -22,6 +28,8 @@ import cameraIcon from '../../assets/device-icons/camera.svg?url';
 import phoneIcon from '../../assets/device-icons/phone.svg?url';
 import hypervisorIcon from '../../assets/device-icons/hypervisor.svg?url';
 
+import { DEFAULT_AGENT_ICONS } from '../../assets/agent-icons';
+
 const DEFAULT_ICONS: Record<string, string> = {
   server: serverIcon, workstation: workstationIcon, router: routerIcon, switch: switchIcon,
   nas: nasIcon, firewall: firewallIcon, access_point: accessPointIcon, iot: iotIcon,
@@ -33,11 +41,14 @@ const ICON_LABELS: Record<string, string> = {
   hypervisor: 'Hypervisor',
 };
 
-const ALL_ICON_TYPES: string[] = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone', 'hypervisor'];
+const ALL_ICON_TYPES: string[] = ['access_point', 'camera', 'firewall', 'hypervisor', 'iot', 'nas', 'phone', 'router', 'server', 'switch', 'workstation'];
+
+const ALL_AGENT_TYPES: string[] = [...AGENT_TYPES];
 
 export default function SettingsPage() {
   const { projectId } = useProject();
   const confirm = useConfirmDialog();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('');
@@ -48,21 +59,45 @@ export default function SettingsPage() {
   const iconInputRef = useRef<HTMLInputElement>(null);
   const [iconUploadType, setIconUploadType] = useState<string | null>(null);
 
+  const agentIconInputRef = useRef<HTMLInputElement>(null);
+  const [agentIconUploadType, setAgentIconUploadType] = useState<string | null>(null);
+
   const { data: typeDefaults = [] } = useQuery({
     queryKey: ['type-default-icons', projectId],
     queryFn: () => fetchTypeDefaults(projectId),
   });
   const customTypeSet = new Set(typeDefaults.map(t => t.device_type));
 
+  const { data: agentTypeDefaults = [] } = useQuery({
+    queryKey: ['agent-type-default-icons', projectId],
+    queryFn: () => fetchAgentTypeDefaults(projectId),
+  });
+  const customAgentTypeSet = new Set(agentTypeDefaults.map(t => t.agent_type));
+
   const uploadIconMut = useMutation({
     mutationFn: ({ deviceType, payload }: { deviceType: string; payload: { filename: string; mime_type: string; data: string } }) =>
       uploadTypeDefault(projectId, deviceType, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['type-default-icons', projectId] }),
+    onError: () => toast('Failed to upload icon', 'error'),
   });
 
   const deleteIconMut = useMutation({
     mutationFn: (deviceType: string) => deleteTypeDefault(projectId, deviceType),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['type-default-icons', projectId] }),
+    onError: () => toast('Failed to delete icon', 'error'),
+  });
+
+  const uploadAgentIconMut = useMutation({
+    mutationFn: ({ agentType, payload }: { agentType: string; payload: { filename: string; mime_type: string; data: string } }) =>
+      uploadAgentTypeDefault(projectId, agentType, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-type-default-icons', projectId] }),
+    onError: () => toast('Failed to upload icon', 'error'),
+  });
+
+  const deleteAgentIconMut = useMutation({
+    mutationFn: (agentType: string) => deleteAgentTypeDefault(projectId, agentType),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['agent-type-default-icons', projectId] }),
+    onError: () => toast('Failed to delete icon', 'error'),
   });
 
   function handleIconUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -75,6 +110,20 @@ export default function SettingsPage() {
       const result = reader.result as string;
       const base64 = result.split(',')[1];
       uploadIconMut.mutate({ deviceType, payload: { filename: file.name, mime_type: file.type, data: base64 } });
+    };
+    reader.readAsDataURL(file);
+  }
+
+  function handleAgentIconUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    const agentType = agentIconUploadType;
+    if (!file || !agentType) return;
+    e.target.value = '';
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      const base64 = result.split(',')[1];
+      uploadAgentIconMut.mutate({ agentType, payload: { filename: file.name, mime_type: file.type, data: base64 } });
     };
     reader.readAsDataURL(file);
   }
@@ -103,11 +152,13 @@ export default function SettingsPage() {
       setTextColor('');
       setUseTextColor(false);
     },
+    onError: () => toast('Failed to create highlight rule', 'error'),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteHighlightRule(projectId, id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['highlight-rules', projectId] }),
+    onError: () => toast('Failed to delete highlight rule', 'error'),
   });
 
   const [editingRule, setEditingRule] = useState<HighlightRule | null>(null);
@@ -124,6 +175,7 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ['highlight-rules', projectId] });
       setEditingRule(null);
     },
+    onError: () => toast('Failed to update highlight rule', 'error'),
   });
 
   useEffect(() => {
@@ -181,13 +233,10 @@ export default function SettingsPage() {
     }
   }
 
-  return (
+  const generalTab = (
     <>
-    <div>
-      <h2 style={{ marginBottom: '1.5rem' }}>Project Settings</h2>
-
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>Backup & Restore</h3>
+      <div className="card">
+        <div className="card-header"><h3 className="card-header-title">Backup & Restore</h3></div>
         <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
           Export this project's data as a JSON file, or restore from a previous backup. Restoring will overwrite all data in this project.
         </p>
@@ -251,12 +300,18 @@ export default function SettingsPage() {
           </div>
         </div>
       </div>
+    </>
+  );
 
-      <div className="card" style={{ marginBottom: '1.5rem' }}>
-        <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>Default Device Icons</h3>
-        <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-          Customise the default icon used for each device type on the network diagram. Upload an image (max 512 KB) to replace the built-in icon, or reset to restore the default.
-        </p>
+  const deviceIconsTab = (
+    <>
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <h3 className="card-header-title">Default Device Icons</h3>
+            <div className="card-header-subtitle">Customise the default icon used for each device type on the network diagram. Upload an image (max 512 KB) to replace the built-in icon.</div>
+          </div>
+        </div>
         <input ref={iconInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleIconUpload} />
         <div className="settings-icon-grid">
           {ALL_ICON_TYPES.map(dt => {
@@ -290,11 +345,63 @@ export default function SettingsPage() {
         </div>
       </div>
 
+    </>
+  );
+
+  const agentIconsTab = (
+    <>
       <div className="card">
-        <h3 style={{ marginBottom: '1rem', fontSize: '1rem' }}>Highlight Rules</h3>
-        <p style={{ marginBottom: '1rem', fontSize: '0.875rem', color: 'var(--color-text-secondary)' }}>
-          Rows in parsed command output that contain a matching keyword will be highlighted with the specified colours.
-        </p>
+        <div className="card-header">
+          <div>
+            <h3 className="card-header-title">Default Agent Icons</h3>
+            <div className="card-header-subtitle">Customise the default icon used for each agent type. Upload an image (max 512 KB) to replace the built-in icon.</div>
+          </div>
+        </div>
+        <input ref={agentIconInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleAgentIconUpload} />
+        <div className="settings-icon-grid">
+          {ALL_AGENT_TYPES.map(at => {
+            const hasCustom = customAgentTypeSet.has(at);
+            const src = hasCustom ? agentTypeDefaultIconUrl(projectId, at) + `?t=${Date.now()}` : DEFAULT_AGENT_ICONS[at];
+            return (
+              <div key={at} className="settings-icon-card">
+                <img src={src} alt={at} className="settings-icon-preview" draggable={false} />
+                <div className="settings-icon-label">{AGENT_TYPE_LABELS[at as keyof typeof AGENT_TYPE_LABELS] || at}</div>
+                <div className="settings-icon-actions">
+                  <button
+                    className="btn btn-sm"
+                    onClick={() => { setAgentIconUploadType(at); agentIconInputRef.current?.click(); }}
+                    disabled={uploadAgentIconMut.isPending}
+                  >
+                    Upload
+                  </button>
+                  {hasCustom && (
+                    <button
+                      className="btn btn-sm btn-danger"
+                      onClick={async () => { if (await confirm(`Reset ${AGENT_TYPE_LABELS[at as keyof typeof AGENT_TYPE_LABELS] || at} icon to default?`)) deleteAgentIconMut.mutate(at); }}
+                      disabled={deleteAgentIconMut.isPending}
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+    </>
+  );
+
+  const highlightRulesTab = (
+    <>
+      <div className="card">
+        <div className="card-header">
+          <div>
+            <h3 className="card-header-title">Highlight Rules</h3>
+            <div className="card-header-subtitle">Rows in parsed command output that contain a matching keyword will be highlighted with the specified colours.</div>
+          </div>
+        </div>
 
         <div className="form-row" style={{ alignItems: 'flex-end', marginBottom: '1rem' }}>
           <div className="form-group" style={{ flex: 2 }}>
@@ -427,6 +534,36 @@ export default function SettingsPage() {
           <p style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>No highlight rules yet.</p>
         )}
       </div>
+    </>
+  );
+
+  const tabs: TabDef[] = [
+    { id: 'general', label: 'General', icon: <SettingsIcon size={14} /> },
+    { id: 'device-icons', label: 'Device Icons', icon: <Monitor size={14} /> },
+    { id: 'agent-icons', label: 'Agent Icons', icon: <Bot size={14} /> },
+    { id: 'highlight-rules', label: 'Highlight Rules', icon: <Highlighter size={14} /> },
+  ];
+
+  const renderTab = (id: string) => {
+    switch (id) {
+      case 'general': return generalTab;
+      case 'device-icons': return deviceIconsTab;
+      case 'agent-icons': return agentIconsTab;
+      case 'highlight-rules': return highlightRulesTab;
+      default: return null;
+    }
+  };
+
+  return (
+    <>
+    <div>
+      <PageHeader
+        title="Project Settings"
+        subtitle="Manage backup, icons, and highlight rules"
+      />
+      <Tabs tabs={tabs} hashPersist>
+        {renderTab}
+      </Tabs>
     </div>
 
     {editingRule && createPortal(

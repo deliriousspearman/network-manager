@@ -24,9 +24,11 @@ export default function DeviceNotesSection({ deviceId, initialHtml }: Props) {
     },
   });
 
+  const initialHtmlRef = useRef(initialHtml);
+  initialHtmlRef.current = initialHtml;
   useEffect(() => {
     if (editing && editorRef.current) {
-      editorRef.current.innerHTML = initialHtml || '';
+      editorRef.current.innerHTML = initialHtmlRef.current || '';
     }
   }, [editing]);
 
@@ -42,7 +44,7 @@ export default function DeviceNotesSection({ deviceId, initialHtml }: Props) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Notes</h3>
         {!editing && (
-          <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>Edit</button>
+          <button className="btn btn-outline" onClick={() => setEditing(true)}>Edit</button>
         )}
       </div>
 

@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useProject } from '../../contexts/ProjectContext';
 import { fetchDevice } from '../../api/devices';
 import { fetchSubnet } from '../../api/subnets';
+import { fetchAgent } from '../../api/agents';
 
 type Crumb = { label: string; href?: string };
 
@@ -11,8 +12,10 @@ const SECTION_LABELS: Record<string, string> = {
   devices: 'Devices',
   subnets: 'Subnets',
   credentials: 'Credentials',
+  agents: 'Agents',
   diagram: 'Network Diagram',
   settings: 'Settings',
+  query: 'SQL Query',
   logs: 'Activity Log',
 };
 
@@ -20,6 +23,7 @@ const NEW_LABELS: Record<string, string> = {
   devices: 'New Device',
   subnets: 'New Subnet',
   credentials: 'New Credential',
+  agents: 'New Agent',
 };
 
 export default function Breadcrumb() {
@@ -48,6 +52,13 @@ export default function Breadcrumb() {
     staleTime: 30_000,
   });
 
+  const { data: agent } = useQuery({
+    queryKey: ['agents', projectId, entityId],
+    queryFn: () => fetchAgent(projectId, entityId!),
+    enabled: section === 'agents' && entityId !== null,
+    staleTime: 30_000,
+  });
+
   const crumbs: Crumb[] = [{ label: project.name, href: `${base}/overview` }];
 
   if (section) {
@@ -61,7 +72,11 @@ export default function Breadcrumb() {
       if (section === 'credentials') {
         crumbs.push({ label: 'Edit Credential' });
       } else {
-        const entityName = section === 'devices' ? device?.name : subnet?.name;
+        const entityName =
+          section === 'devices' ? device?.name :
+          section === 'subnets' ? subnet?.name :
+          section === 'agents' ? agent?.device_name :
+          undefined;
         crumbs.push({
           label: entityName ?? '…',
           href: isEdit ? `${base}/${section}/${entityId}` : undefined,

@@ -19,6 +19,11 @@ const AdminSettingsPage = lazy(() => import('./components/admin/AdminSettingsPag
 const AdminLogsPage = lazy(() => import('./components/admin/AdminLogsPage'));
 const OverviewPage = lazy(() => import('./components/overview/OverviewPage'));
 const LogsPage = lazy(() => import('./components/logs/LogsPage'));
+const QueryPage = lazy(() => import('./components/query/QueryPage'));
+const TimelinePage = lazy(() => import('./components/timeline/TimelinePage'));
+const AgentList = lazy(() => import('./components/agents/AgentList'));
+const AgentForm = lazy(() => import('./components/agents/AgentForm'));
+const AgentDetail = lazy(() => import('./components/agents/AgentDetail'));
 
 function SuspenseWrap({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LoadingSpinner />}>{children}</Suspense>;
@@ -39,6 +44,10 @@ export default function App() {
         <Route path="/p/:projectSlug" element={<ProjectLayout />}>
           <Route index element={<Navigate to="overview" replace />} />
           <Route path="overview" element={<OverviewPage />} />
+          <Route path="agents" element={<AgentList />} />
+          <Route path="agents/new" element={<AgentForm />} />
+          <Route path="agents/:id" element={<AgentDetail />} />
+          <Route path="agents/:id/edit" element={<AgentForm />} />
           <Route path="devices" element={<DeviceList />} />
           <Route path="devices/new" element={<DeviceForm />} />
           <Route path="devices/:id" element={<DeviceDetail />} />
@@ -49,8 +58,10 @@ export default function App() {
           <Route path="subnets/:id/edit" element={<SubnetForm />} />
           <Route path="credentials" element={<CredentialList />} />
           <Route path="diagram" element={<NetworkDiagram />} />
+          <Route path="timeline" element={<TimelinePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="logs" element={<LogsPage />} />
+          <Route path="query" element={<QueryPage />} />
         </Route>
 
         {/* Legacy URL redirects */}

@@ -4,11 +4,23 @@ A web application for inventorying network devices (servers, workstations, route
 
 ## Features
 
-- **Device Management** — CRUD for servers, workstations, routers, and switches with multiple IP addresses, MAC, OS, location, and notes
+- **Projects** — Multi-tenant isolated workspaces; everything (devices, subnets, credentials, diagrams, logs) is scoped to a project
+- **Device Management** — CRUD for servers, workstations, routers, and switches with multiple IP addresses, ports, attachments, images, and custom icons
 - **Subnet Organization** — Group devices by subnet with CIDR and VLAN tracking
-- **Command Output Parsing** — Paste output from `ps aux`, `netstat`/`ss`, `last`, or `ip a` and get structured, searchable tables (servers only)
-- **Freeform Notes** — Manual text field for any other command output or documentation
-- **Interactive Network Diagram** — Drag-and-drop React Flow canvas with device nodes, subnet grouping, and connection edges that persist across sessions
+- **Credentials** — Encrypted credential store linked to devices
+- **Agents** — Remote agents that collect command output on a schedule
+- **Command Output Parsing** — Paste or collect output from `ps`, `netstat`/`ss`, `last`, `ip a`, `ip r`, `mount`, `systemctl status`, `arp`, or CSV and get structured, searchable tables
+- **Interactive Network Diagram** — Drag-and-drop React Flow canvas with device nodes, subnet grouping, custom icons, and connection edges that persist across sessions
+- **Timeline** — Chronological per-device event log
+- **SQL Query Console** — Read-only ad-hoc SQL against the project database
+- **Global Search** — `Ctrl+K` from anywhere to jump to devices, subnets, credentials, or agents
+- **Activity Logs** — Audit trail of changes
+- **Backup & Restore** — Built-in database backup and restore
+
+## Documentation
+
+- [User Guide](docs/USER.md) — how to use the app from the UI (projects, devices, credentials, diagram, SQL query, timeline, etc.)
+- [Developer Documentation](docs/DEVELOPER.md) — architecture, HTTP API reference, data model, and frontend internals
 
 ## Requirements
 
@@ -26,11 +38,11 @@ cd network-manager
 # Install dependencies
 npm install
 
-# Start dev servers (API on :3001, UI on :5173)
+# Start dev servers (API on :3001, UI on :8080)
 npm run dev
 ```
 
-Open http://localhost:5173 in your browser. The Vite dev server proxies API requests to the Express backend automatically.
+Open http://localhost:8080 in your browser. The Vite dev server proxies API requests to the Express backend automatically.
 
 ## Production Setup
 

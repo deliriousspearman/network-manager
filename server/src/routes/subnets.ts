@@ -2,22 +2,9 @@ import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
 import { ValidationError, requireString, optionalString, optionalInt } from '../validation.js';
+import { isValidCidr } from '../utils/cidr.js';
 
 const router = Router({ mergeParams: true });
-
-// Validates IPv4 CIDR (e.g. 192.168.1.0/24) or IPv6 CIDR (e.g. 2001:db8::/32)
-function isValidCidr(cidr: string): boolean {
-  // IPv4: each octet 0-255, prefix 0-32
-  const ipv4Match = cidr.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/);
-  if (ipv4Match) {
-    const octets = [+ipv4Match[1], +ipv4Match[2], +ipv4Match[3], +ipv4Match[4]];
-    const prefix = +ipv4Match[5];
-    return octets.every(o => o >= 0 && o <= 255) && prefix >= 0 && prefix <= 32;
-  }
-  // IPv6: hex groups with colons, prefix 0-128
-  const ipv6 = /^[0-9a-fA-F:]{2,39}\/(\d|[1-9]\d|1[01]\d|12[0-8])$/;
-  return ipv6.test(cidr);
-}
 
 const SUBNET_SORT_MAP: Record<string, string> = {
   name: 'name', cidr: 'cidr', vlan_id: 'vlan_id', description: 'description',

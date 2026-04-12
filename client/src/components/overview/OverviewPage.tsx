@@ -6,15 +6,18 @@ import { useProject } from '../../contexts/ProjectContext';
 import { fetchProjectStats, updateProject } from '../../api/projects';
 import { useParams } from 'react-router-dom';
 import { RichToolbar } from '../ui/RichEditor';
+import PageHeader from '../layout/PageHeader';
 
 function StatCard({ label, value, icon: Icon }: { label: string; value: number | undefined; icon: React.ElementType }) {
   return (
     <div className="card overview-stat-card">
-      <div className="overview-stat-icon">
-        <Icon size={20} />
+      <div className="overview-stat-head">
+        <div className="overview-stat-label">{label}</div>
+        <div className="overview-stat-icon">
+          <Icon size={18} />
+        </div>
       </div>
       <div className="overview-stat-value">{value ?? '—'}</div>
-      <div className="overview-stat-label">{label}</div>
     </div>
   );
 }
@@ -48,10 +51,13 @@ export default function OverviewPage() {
     },
   });
 
-  // Populate editor innerHTML when edit mode opens
+  // Populate editor innerHTML when edit mode opens — use a ref so we don't clobber
+  // the user's in-flight edits if the upstream description prop changes mid-edit.
+  const descriptionRef = useRef(project.description);
+  descriptionRef.current = project.description;
   useEffect(() => {
     if (editing && editorRef.current) {
-      editorRef.current.innerHTML = project.description || '';
+      editorRef.current.innerHTML = descriptionRef.current || '';
     }
   }, [editing]);
 
@@ -70,9 +76,10 @@ export default function OverviewPage() {
 
   return (
     <div>
-      <div className="page-header">
-        <h2>{project.name}</h2>
-      </div>
+      <PageHeader
+        title={project.name}
+        subtitle={project.about_title || 'Project overview'}
+      />
 
       {/* Stat cards */}
       <div className="overview-stats-row">

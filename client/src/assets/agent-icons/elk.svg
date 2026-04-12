@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Stacked log layers (E-L-K stack) -->
+  <rect x="20" y="22" width="88" height="22" rx="3"/>
+  <rect x="20" y="52" width="88" height="22" rx="3"/>
+  <rect x="20" y="82" width="88" height="22" rx="3"/>
+  <!-- Layer indicators -->
+  <circle cx="34" cy="33" r="3" fill="currentColor"/>
+  <circle cx="34" cy="63" r="3" fill="currentColor"/>
+  <circle cx="34" cy="93" r="3" fill="currentColor"/>
+  <!-- Log lines -->
+  <line x1="48" y1="33" x2="94" y2="33"/>
+  <line x1="48" y1="63" x2="94" y2="63"/>
+  <line x1="48" y1="93" x2="94" y2="93"/>
+</svg>

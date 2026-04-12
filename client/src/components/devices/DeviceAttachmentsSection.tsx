@@ -4,6 +4,7 @@ import { Trash2, Upload, Download } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { fetchDeviceAttachments, uploadDeviceAttachment, deleteDeviceAttachment, attachmentUrl } from '../../api/deviceAttachments';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 import type { DeviceAttachment } from 'shared/types';
 
 const MAX_SIZE = 5 * 1024 * 1024; // 5 MB
@@ -18,6 +19,7 @@ export default function DeviceAttachmentsSection({ deviceId }: { deviceId: numbe
   const { projectId } = useProject();
   const queryClient = useQueryClient();
   const confirm = useConfirmDialog();
+  const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -30,11 +32,13 @@ export default function DeviceAttachmentsSection({ deviceId }: { deviceId: numbe
     mutationFn: (payload: { filename: string; mime_type: string; size: number; data: string }) =>
       uploadDeviceAttachment(projectId, deviceId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-attachments', projectId, deviceId] }),
+    onError: () => toast('Failed to upload attachment', 'error'),
   });
 
   const deleteMut = useMutation({
     mutationFn: (attachmentId: number) => deleteDeviceAttachment(projectId, deviceId, attachmentId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-attachments', projectId, deviceId] }),
+    onError: () => toast('Failed to delete attachment', 'error'),
   });
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -68,7 +72,7 @@ export default function DeviceAttachmentsSection({ deviceId }: { deviceId: numbe
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Attachments</h3>
         <button
-          className="btn btn-secondary btn-sm"
+          className="btn btn-outline"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadMut.isPending}
         >

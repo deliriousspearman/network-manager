@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchSubnet, createSubnet, updateSubnet } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
+import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
 import { isValidCidr } from '../../utils/validation';
 
 export default function SubnetForm() {
@@ -17,6 +18,9 @@ export default function SubnetForm() {
   const [cidr, setCidr] = useState('');
   const [vlanId, setVlanId] = useState('');
   const [description, setDescription] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
+
+  useUnsavedChanges(isDirty);
 
   const { data: subnet } = useQuery({
     queryKey: ['subnet', projectId, Number(id)],
@@ -36,6 +40,7 @@ export default function SubnetForm() {
   const mutation = useMutation({
     mutationFn: (data: any) => isEdit ? updateSubnet(projectId, Number(id), data) : createSubnet(projectId, data),
     onSuccess: () => {
+      setIsDirty(false);
       queryClient.invalidateQueries({ queryKey: ['subnets', projectId] });
       navigate(`${base}/subnets`);
     },
@@ -65,7 +70,7 @@ export default function SubnetForm() {
         <h2>{isEdit ? 'Edit Subnet' : 'New Subnet'}</h2>
       </div>
 
-      <form className="card" onSubmit={handleSubmit}>
+      <form className="card" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
         <div className="form-group">
           <label>Name *</label>
           <input value={name} onChange={e => setName(e.target.value)} required placeholder="Management Network" />

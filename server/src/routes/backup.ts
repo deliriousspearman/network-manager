@@ -40,10 +40,19 @@ router.get('/export', (_req, res) => {
       parsed_mounts: [],
       parsed_routes: [],
       parsed_services: [],
+      router_configs: includeCommandOutputs ? db.prepare('SELECT * FROM router_configs WHERE project_id = ?').all(projectId) : [],
+      parsed_router_interfaces: [],
+      parsed_router_vlans: [],
+      parsed_router_static_routes: [],
+      parsed_router_acls: [],
+      parsed_router_nat_rules: [],
+      parsed_router_dhcp_pools: [],
+      parsed_router_users: [],
       credentials: includeCredentials ? db.prepare('SELECT * FROM credentials WHERE project_id = ?').all(projectId) : [],
       device_type_icons: includeImages ? db.prepare('SELECT * FROM device_type_icons WHERE project_id = ?').all(projectId) : [],
       device_icon_overrides: includeImages && deviceIds.length ? db.prepare(`SELECT * FROM device_icon_overrides WHERE device_id IN (${inParams(deviceIds).ph})`).all(...deviceIds) : [],
       diagram_images: includeImages ? db.prepare('SELECT * FROM diagram_images WHERE project_id = ?').all(projectId) : [],
+      agent_type_icons: includeImages ? db.prepare('SELECT * FROM agent_type_icons WHERE project_id = ?').all(projectId) : [],
     };
 
     if (includeCommandOutputs) {
@@ -57,6 +66,17 @@ router.get('/export', (_req, res) => {
         data.parsed_mounts = db.prepare(`SELECT * FROM parsed_mounts WHERE output_id IN (${ph})`).all(...outputIds);
         data.parsed_routes = db.prepare(`SELECT * FROM parsed_routes WHERE output_id IN (${ph})`).all(...outputIds);
         data.parsed_services = db.prepare(`SELECT * FROM parsed_services WHERE output_id IN (${ph})`).all(...outputIds);
+      }
+      const configIds = (data.router_configs as any[]).map(c => c.id);
+      if (configIds.length) {
+        const { ph } = inParams(configIds);
+        data.parsed_router_interfaces = db.prepare(`SELECT * FROM parsed_router_interfaces WHERE config_id IN (${ph})`).all(...configIds);
+        data.parsed_router_vlans = db.prepare(`SELECT * FROM parsed_router_vlans WHERE config_id IN (${ph})`).all(...configIds);
+        data.parsed_router_static_routes = db.prepare(`SELECT * FROM parsed_router_static_routes WHERE config_id IN (${ph})`).all(...configIds);
+        data.parsed_router_acls = db.prepare(`SELECT * FROM parsed_router_acls WHERE config_id IN (${ph})`).all(...configIds);
+        data.parsed_router_nat_rules = db.prepare(`SELECT * FROM parsed_router_nat_rules WHERE config_id IN (${ph})`).all(...configIds);
+        data.parsed_router_dhcp_pools = db.prepare(`SELECT * FROM parsed_router_dhcp_pools WHERE config_id IN (${ph})`).all(...configIds);
+        data.parsed_router_users = db.prepare(`SELECT * FROM parsed_router_users WHERE config_id IN (${ph})`).all(...configIds);
       }
     }
   } else {
@@ -80,10 +100,19 @@ router.get('/export', (_req, res) => {
       parsed_mounts: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_mounts').all() : [],
       parsed_routes: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_routes').all() : [],
       parsed_services: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_services').all() : [],
+      router_configs: includeCommandOutputs ? db.prepare('SELECT * FROM router_configs').all() : [],
+      parsed_router_interfaces: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_interfaces').all() : [],
+      parsed_router_vlans: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_vlans').all() : [],
+      parsed_router_static_routes: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_static_routes').all() : [],
+      parsed_router_acls: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_acls').all() : [],
+      parsed_router_nat_rules: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_nat_rules').all() : [],
+      parsed_router_dhcp_pools: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_dhcp_pools').all() : [],
+      parsed_router_users: includeCommandOutputs ? db.prepare('SELECT * FROM parsed_router_users').all() : [],
       credentials: includeCredentials ? db.prepare('SELECT * FROM credentials').all() : [],
       device_type_icons: includeImages ? db.prepare('SELECT * FROM device_type_icons').all() : [],
       device_icon_overrides: includeImages ? db.prepare('SELECT * FROM device_icon_overrides').all() : [],
       diagram_images: includeImages ? db.prepare('SELECT * FROM diagram_images').all() : [],
+      agent_type_icons: includeImages ? db.prepare('SELECT * FROM agent_type_icons').all() : [],
     };
   }
 
@@ -120,7 +149,7 @@ router.post('/import', (req, res) => {
     return;
   }
 
-  if (![1, 2, 3].includes(backup.version)) {
+  if (![1, 2, 3, 4, 5].includes(backup.version)) {
     res.status(400).json({ error: 'Unsupported backup version' });
     return;
   }
@@ -132,7 +161,10 @@ router.post('/import', (req, res) => {
     'diagram_positions', 'subnet_diagram_positions', 'highlight_rules', 'command_outputs',
     'parsed_processes', 'parsed_connections', 'parsed_logins', 'parsed_interfaces',
     'parsed_mounts', 'parsed_routes', 'parsed_services', 'credentials', 'projects',
-    'device_type_icons', 'device_icon_overrides', 'diagram_images'];
+    'device_type_icons', 'device_icon_overrides', 'diagram_images', 'agent_type_icons',
+    'router_configs', 'parsed_router_interfaces', 'parsed_router_vlans',
+    'parsed_router_static_routes', 'parsed_router_acls', 'parsed_router_nat_rules',
+    'parsed_router_dhcp_pools', 'parsed_router_users'];
   for (const key of arrayKeys) {
     if (data[key] !== undefined && !Array.isArray(data[key])) {
       res.status(400).json({ error: `data.${key} must be an array` });
@@ -179,6 +211,8 @@ router.post('/import', (req, res) => {
           db.prepare(`DELETE FROM parsed_services WHERE output_id IN (${ph})`).run(...outputIds);
         }
         db.prepare('DELETE FROM command_outputs WHERE project_id = ?').run(projectId);
+        // Router configs cascade to parsed_router_* tables
+        db.prepare('DELETE FROM router_configs WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM credentials WHERE project_id = ?').run(projectId);
         if (deviceIds.length) {
           const { ph } = inParams(deviceIds);
@@ -195,6 +229,7 @@ router.post('/import', (req, res) => {
         db.prepare('DELETE FROM device_type_icons WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM device_icon_overrides WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM diagram_images WHERE project_id = ?').run(projectId);
+        db.prepare('DELETE FROM agent_type_icons WHERE project_id = ?').run(projectId);
         db.prepare('UPDATE devices SET hypervisor_id = NULL WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM devices WHERE project_id = ?').run(projectId);
         db.prepare('DELETE FROM subnets WHERE project_id = ?').run(projectId);
@@ -210,6 +245,15 @@ router.post('/import', (req, res) => {
         db.prepare('DELETE FROM parsed_routes').run();
         db.prepare('DELETE FROM parsed_services').run();
         db.prepare('DELETE FROM command_outputs').run();
+        // Router configs cascade to parsed_router_* tables
+        db.prepare('DELETE FROM parsed_router_interfaces').run();
+        db.prepare('DELETE FROM parsed_router_vlans').run();
+        db.prepare('DELETE FROM parsed_router_static_routes').run();
+        db.prepare('DELETE FROM parsed_router_acls').run();
+        db.prepare('DELETE FROM parsed_router_nat_rules').run();
+        db.prepare('DELETE FROM parsed_router_dhcp_pools').run();
+        db.prepare('DELETE FROM parsed_router_users').run();
+        db.prepare('DELETE FROM router_configs').run();
         db.prepare('DELETE FROM credentials').run();
         db.prepare('DELETE FROM diagram_positions').run();
         db.prepare('DELETE FROM subnet_diagram_positions').run();
@@ -223,6 +267,7 @@ router.post('/import', (req, res) => {
         db.prepare('DELETE FROM device_type_icons').run();
         db.prepare('DELETE FROM device_icon_overrides').run();
         db.prepare('DELETE FROM diagram_images').run();
+        db.prepare('DELETE FROM agent_type_icons').run();
         db.prepare('DELETE FROM projects').run();
       }
 
@@ -361,6 +406,62 @@ router.post('/import', (req, res) => {
         }
       }
 
+      if (data.router_configs?.length) {
+        const stmt = db.prepare('INSERT INTO router_configs (id, device_id, project_id, vendor, raw_config, captured_at, title, parse_output, hostname, os_version, model, domain, timezone, ntp_servers) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.router_configs) {
+          stmt.run(row.id, row.device_id, projectId ?? row.project_id ?? targetProjectId, row.vendor, row.raw_config, row.captured_at, row.title ?? null, row.parse_output ?? 1, row.hostname ?? null, row.os_version ?? null, row.model ?? null, row.domain ?? null, row.timezone ?? null, row.ntp_servers ?? null);
+        }
+      }
+
+      if (data.parsed_router_interfaces?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_interfaces (id, config_id, interface_name, description, ip_address, subnet_mask, vlan, admin_status, mac_address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.parsed_router_interfaces) {
+          stmt.run(row.id, row.config_id, row.interface_name, row.description ?? null, row.ip_address ?? null, row.subnet_mask ?? null, row.vlan ?? null, row.admin_status ?? null, row.mac_address ?? null);
+        }
+      }
+
+      if (data.parsed_router_vlans?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_vlans (id, config_id, vlan_id, name) VALUES (?, ?, ?, ?)');
+        for (const row of data.parsed_router_vlans) {
+          stmt.run(row.id, row.config_id, row.vlan_id, row.name ?? null);
+        }
+      }
+
+      if (data.parsed_router_static_routes?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_static_routes (id, config_id, destination, mask, next_hop, metric, admin_distance) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.parsed_router_static_routes) {
+          stmt.run(row.id, row.config_id, row.destination, row.mask ?? null, row.next_hop ?? null, row.metric ?? null, row.admin_distance ?? null);
+        }
+      }
+
+      if (data.parsed_router_acls?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_acls (id, config_id, acl_name, sequence, action, protocol, src, src_port, dst, dst_port) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.parsed_router_acls) {
+          stmt.run(row.id, row.config_id, row.acl_name, row.sequence ?? null, row.action, row.protocol ?? null, row.src ?? null, row.src_port ?? null, row.dst ?? null, row.dst_port ?? null);
+        }
+      }
+
+      if (data.parsed_router_nat_rules?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_nat_rules (id, config_id, nat_type, protocol, inside_src, inside_port, outside_src, outside_port) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.parsed_router_nat_rules) {
+          stmt.run(row.id, row.config_id, row.nat_type, row.protocol ?? null, row.inside_src ?? null, row.inside_port ?? null, row.outside_src ?? null, row.outside_port ?? null);
+        }
+      }
+
+      if (data.parsed_router_dhcp_pools?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_dhcp_pools (id, config_id, pool_name, network, netmask, default_router, dns_servers, lease_time, domain_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.parsed_router_dhcp_pools) {
+          stmt.run(row.id, row.config_id, row.pool_name, row.network ?? null, row.netmask ?? null, row.default_router ?? null, row.dns_servers ?? null, row.lease_time ?? null, row.domain_name ?? null);
+        }
+      }
+
+      if (data.parsed_router_users?.length) {
+        const stmt = db.prepare('INSERT INTO parsed_router_users (id, config_id, username, privilege, auth_method) VALUES (?, ?, ?, ?, ?)');
+        for (const row of data.parsed_router_users) {
+          stmt.run(row.id, row.config_id, row.username, row.privilege ?? null, row.auth_method ?? null);
+        }
+      }
+
       if (data.highlight_rules?.length) {
         const stmt = db.prepare('INSERT INTO highlight_rules (id, keyword, category, color, text_color, project_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
         for (const row of data.highlight_rules) {
@@ -393,6 +494,13 @@ router.post('/import', (req, res) => {
         const stmt = db.prepare('INSERT INTO diagram_images (id, project_id, x, y, width, height, filename, mime_type, data, label, view_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
         for (const row of data.diagram_images) {
           stmt.run(row.id, projectId ?? row.project_id ?? targetProjectId, row.x, row.y, row.width, row.height, row.filename, row.mime_type, row.data, row.label ?? null, row.view_id ?? null, row.created_at);
+        }
+      }
+
+      if (data.agent_type_icons?.length) {
+        const stmt = db.prepare('INSERT INTO agent_type_icons (id, project_id, agent_type, filename, mime_type, data, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        for (const row of data.agent_type_icons) {
+          stmt.run(row.id, projectId ?? row.project_id ?? targetProjectId, row.agent_type, row.filename, row.mime_type, row.data, row.created_at);
         }
       }
     })();

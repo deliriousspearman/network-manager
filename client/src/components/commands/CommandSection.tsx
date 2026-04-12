@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchOutputsForDevice, fetchOutput, submitOutput, deleteOutput } from '../../api/commandOutputs';
+import { fetchOutputsForDevice, fetchOutput, submitOutput, deleteOutput, updateOutput, toggleParseOutput } from '../../api/commandOutputs';
 import { fetchHighlightRules } from '../../api/highlightRules';
 import { fetchSettings } from '../../api/settings';
 import { useProject } from '../../contexts/ProjectContext';
@@ -13,14 +14,17 @@ import InterfacesTable from './InterfacesTable';
 import MountTable from './MountTable';
 import RoutesTable from './RoutesTable';
 import ServicesTable from './ServicesTable';
+import ArpTable from './ArpTable';
+import DiffModal from './DiffModal';
 
 const COMMAND_LABELS: Record<CommandType, string> = {
   ps: 'Processes',
   netstat: 'Network Connections',
   last: 'Logins',
   ip_a: 'IP Info',
-  mount: 'Mount',
   ip_r: 'Routes',
+  arp: 'ARP',
+  mount: 'Mount',
   systemctl_status: 'Services',
   freeform: 'Notes',
 };
@@ -30,12 +34,18 @@ const COMMAND_HINTS: Partial<Record<CommandType, string>> = {
   netstat: 'netstat -tulpn',
   last: 'last',
   ip_a: 'ip a',
-  mount: 'mount',
   ip_r: 'ip r',
+  arp: 'arp -avn',
+  mount: 'mount',
   systemctl_status: 'systemctl list-units --type=service',
 };
 
 const COMMAND_TYPES = Object.keys(COMMAND_LABELS) as CommandType[];
+
+// Convert "YYYY-MM-DD HH:MM:SS" (UTC) to "YYYY-MM-DDTHH:MM" for datetime-local input
+function toDatetimeLocal(capturedAt: string): string {
+  return capturedAt.replace(' ', 'T').substring(0, 16);
+}
 
 function formatTimestamp(capturedAt: string, title: string | null, timezone = 'UTC'): string {
   const date = new Date(capturedAt + 'Z');
@@ -50,12 +60,20 @@ function formatTimestamp(capturedAt: string, title: string | null, timezone = 'U
 export default function CommandSection({ deviceId }: { deviceId: number }) {
   const { projectId } = useProject();
   const confirm = useConfirmDialog();
+  const toast = useToast();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<CommandType>('ps');
   const [selectedOutputId, setSelectedOutputId] = useState<number | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [rawInput, setRawInput] = useState('');
   const [noteTitle, setNoteTitle] = useState('');
+  const [parseOutput, setParseOutput] = useState(true);
+
+  const [showEdit, setShowEdit] = useState(false);
+  const [editRaw, setEditRaw] = useState('');
+  const [editCapturedAt, setEditCapturedAt] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [showDiff, setShowDiff] = useState(false);
 
   const { data: rules = [] } = useQuery({
     queryKey: ['highlight-rules', projectId],
@@ -80,14 +98,16 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
   });
 
   const submitMut = useMutation({
-    mutationFn: (data: { command_type: CommandType; raw_output: string; title?: string }) =>
+    mutationFn: (data: { command_type: CommandType; raw_output: string; title?: string; parse_output?: boolean }) =>
       submitOutput(projectId, deviceId, data),
+    onError: () => toast('Failed to save command output', 'error'),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['outputs', projectId, deviceId] });
       setSelectedOutputId(result.id);
       setShowForm(false);
       setRawInput('');
       setNoteTitle('');
+      setParseOutput(true);
     },
   });
 
@@ -100,13 +120,52 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
         setSelectedOutputId(remaining.length > 0 ? remaining[0].id : null);
       }
     },
+    onError: () => toast('Failed to delete command output', 'error'),
   });
+
+  const toggleParseMut = useMutation({
+    mutationFn: ({ id, enable }: { id: number; enable: boolean }) => toggleParseOutput(projectId, id, enable),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['output', projectId, selectedOutputId] });
+      queryClient.invalidateQueries({ queryKey: ['outputs', projectId, deviceId] });
+    },
+    onError: () => toast('Failed to toggle parse output', 'error'),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { raw_output?: string; captured_at?: string; title?: string } }) =>
+      updateOutput(projectId, id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['output', projectId, selectedOutputId] });
+      queryClient.invalidateQueries({ queryKey: ['outputs', projectId, deviceId] });
+      setShowEdit(false);
+    },
+    onError: () => toast('Failed to update command output', 'error'),
+  });
+
+  function openEdit(output: CommandOutputWithParsed) {
+    setEditRaw(output.raw_output);
+    setEditCapturedAt(toDatetimeLocal(output.captured_at));
+    setEditTitle(output.title ?? '');
+    setShowEdit(true);
+    setShowForm(false);
+  }
+
+  useEffect(() => {
+    if (selectedOutputId === null && outputs && outputs.length > 0) {
+      const tabOutputs = outputs.filter(o => o.command_type === activeTab);
+      if (tabOutputs.length > 0) setSelectedOutputId(tabOutputs[0].id);
+    }
+  }, [outputs, activeTab, selectedOutputId]);
 
   function handleTabChange(tab: CommandType) {
     setActiveTab(tab);
     setShowForm(false);
+    setShowEdit(false);
+    setShowDiff(false);
     setRawInput('');
     setNoteTitle('');
+    setParseOutput(true);
     const tabOutputs = (outputs ?? []).filter(o => o.command_type === tab);
     setSelectedOutputId(tabOutputs.length > 0 ? tabOutputs[0].id : null);
   }
@@ -158,6 +217,13 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
                 ))}
               </select>
               <button
+                className="btn btn-secondary btn-sm"
+                disabled={selectedOutputId === null}
+                onClick={() => viewedOutput && openEdit(viewedOutput)}
+              >
+                Edit
+              </button>
+              <button
                 className="btn btn-danger btn-sm"
                 disabled={selectedOutputId === null || deleteMut.isPending}
                 onClick={async () => {
@@ -168,6 +234,14 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
               >
                 Delete
               </button>
+              {tabOutputs.length >= 2 && (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={() => setShowDiff(true)}
+                >
+                  Diff
+                </button>
+              )}
             </>
           ) : (
             <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
@@ -181,6 +255,58 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
             {showForm ? 'Cancel' : '+ Add Capture'}
           </button>
         </div>
+
+        {showEdit && viewedOutput && (
+          <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--color-border)' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <div className="form-group" style={{ flex: 1, minWidth: '200px', margin: 0 }}>
+                <label>Date &amp; Time (UTC)</label>
+                <input
+                  type="datetime-local"
+                  value={editCapturedAt}
+                  onChange={e => setEditCapturedAt(e.target.value)}
+                />
+              </div>
+              {viewedOutput.command_type === 'freeform' && (
+                <div className="form-group" style={{ flex: 2, minWidth: '200px', margin: 0 }}>
+                  <label>Title</label>
+                  <input
+                    type="text"
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    placeholder="e.g. Temporary Notes"
+                  />
+                </div>
+              )}
+            </div>
+            <div className="form-group">
+              <label>Raw Output</label>
+              <textarea
+                value={editRaw}
+                onChange={e => setEditRaw(e.target.value)}
+                rows={8}
+                style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                className="btn btn-primary btn-sm"
+                disabled={updateMut.isPending}
+                onClick={() => updateMut.mutate({
+                  id: viewedOutput.id,
+                  data: {
+                    raw_output: editRaw,
+                    captured_at: editCapturedAt,
+                    ...(viewedOutput.command_type === 'freeform' ? { title: editTitle } : {}),
+                  },
+                })}
+              >
+                {updateMut.isPending ? 'Saving...' : 'Save'}
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowEdit(false)}>Cancel</button>
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--color-border)' }}>
@@ -205,12 +331,22 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
                 style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}
               />
             </div>
+            {activeTab !== 'freeform' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', marginBottom: '0.5rem', cursor: 'pointer' }}>
+                <span className="toggle-switch">
+                  <input type="checkbox" checked={parseOutput} onChange={e => setParseOutput(e.target.checked)} />
+                  <span className="toggle-switch-slider" />
+                </span>
+                Parse command output
+              </label>
+            )}
             <button
               className="btn btn-primary"
               onClick={() => submitMut.mutate({
                 command_type: activeTab,
                 raw_output: rawInput,
                 ...(activeTab === 'freeform' && noteTitle.trim() ? { title: noteTitle.trim() } : {}),
+                ...(activeTab !== 'freeform' ? { parse_output: parseOutput } : {}),
               })}
               disabled={!rawInput.trim() || submitMut.isPending}
             >
@@ -219,20 +355,45 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
           </div>
         )}
 
-        {viewedOutput && viewedOutput.command_type === activeTab && (
+        {!showEdit && viewedOutput && viewedOutput.command_type === activeTab && (
           <>
-            {renderParsedData(viewedOutput, rules)}
-            <details style={{ marginTop: '1rem' }}>
-              <summary style={{ cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
-                View Raw Output
-              </summary>
-              <pre style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--color-bg)', borderRadius: '6px', fontSize: '0.75rem', overflow: 'auto', maxHeight: '300px' }}>
+            {viewedOutput.command_type !== 'freeform' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', marginBottom: '0.75rem', cursor: 'pointer' }}>
+                <span className="toggle-switch">
+                  <input
+                    type="checkbox"
+                    checked={!!viewedOutput.parse_output}
+                    disabled={toggleParseMut.isPending}
+                    onChange={e => toggleParseMut.mutate({ id: viewedOutput.id, enable: e.target.checked })}
+                  />
+                  <span className="toggle-switch-slider" />
+                </span>
+                Parse command output
+              </label>
+            )}
+            {viewedOutput.parse_output ? (
+              <>
+                {renderParsedData(viewedOutput, rules)}
+                <details style={{ marginTop: '1rem' }}>
+                  <summary style={{ cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                    View Raw Output
+                  </summary>
+                  <pre style={{ marginTop: '0.5rem', padding: '0.75rem', background: 'var(--color-bg)', borderRadius: '6px', fontSize: '0.75rem', overflow: 'auto', maxHeight: '300px' }}>
+                    {viewedOutput.raw_output}
+                  </pre>
+                </details>
+              </>
+            ) : (
+              <pre style={{ padding: '0.75rem', background: 'var(--color-bg)', borderRadius: '6px', fontSize: '0.8rem', overflow: 'auto', whiteSpace: 'pre-wrap' }}>
                 {viewedOutput.raw_output}
               </pre>
-            </details>
+            )}
           </>
         )}
       </div>
+      {showDiff && (
+        <DiffModal outputs={tabOutputs} projectId={projectId} onClose={() => setShowDiff(false)} />
+      )}
     </div>
   );
 }
@@ -253,6 +414,8 @@ function renderParsedData(output: CommandOutputWithParsed, rules: HighlightRule[
       return <RoutesTable routes={output.parsed_routes || []} rules={rules} />;
     case 'systemctl_status':
       return <ServicesTable services={output.parsed_services || []} rules={rules} />;
+    case 'arp':
+      return <ArpTable entries={output.parsed_arp || []} rules={rules} />;
     case 'freeform':
       return (
         <pre style={{ padding: '0.75rem', background: 'var(--color-bg)', borderRadius: '6px', fontSize: '0.8rem', overflow: 'auto', whiteSpace: 'pre-wrap' }}>

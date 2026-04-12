@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Sets up the Network Manager app from vendored dependencies (no internet needed):
-#   - Installs npm dependencies from vendor/npm-cache
+#   - Extracts vendor-deps.tar.gz (npm cache archive)
+#   - Installs npm dependencies from the extracted cache
 #   - Optionally builds the project (production only)
 #   - Optionally generates a self-signed TLS certificate (production only)
 #   - Creates and enables a systemd user service
 #
 # Prerequisites:
 #   - Node.js already installed
-#   - Run scripts/vendor-deps.sh on an internet-connected machine first
+#   - vendor-deps.tar.gz in the project root (from scripts/vendor-deps.sh)
 
 set -e
 
@@ -15,7 +16,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
 SERVICE_FILE="$HOME/.config/systemd/user/network-manager.service"
 CERT_DIR="$ROOT_DIR/server/certs"
-VENDOR_CACHE="$ROOT_DIR/vendor/npm-cache"
+VENDOR_DIR="$ROOT_DIR/vendor"
+VENDOR_CACHE="$VENDOR_DIR/npm-cache"
+TARBALL="$ROOT_DIR/vendor-deps.tar.gz"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -40,15 +43,23 @@ command -v npm  >/dev/null 2>&1 || error "npm not found."
 
 success "node $(node --version), npm $(npm --version)"
 
-# ── Verify vendor cache ──────────────────────────────────────────────────────
+# ── Extract vendor archive ───────────────────────────────────────────────────
 
-header "Checking vendor cache"
+header "Extracting vendor dependencies"
 
-if [[ ! -d "$VENDOR_CACHE/_cacache" ]]; then
-  error "vendor/npm-cache not found. Run scripts/vendor-deps.sh on an internet-connected machine first."
+if [[ ! -f "$TARBALL" ]]; then
+  error "vendor-deps.tar.gz not found. Run scripts/vendor-deps.sh on an internet-connected machine first."
 fi
 
-success "Vendor cache found ($(du -sh "$VENDOR_CACHE" | cut -f1))"
+info "Archive: $(du -sh "$TARBALL" | cut -f1)"
+mkdir -p "$VENDOR_DIR"
+tar xzf "$TARBALL" -C "$VENDOR_DIR"
+
+if [[ ! -d "$VENDOR_CACHE/_cacache" ]]; then
+  error "Extraction failed: _cacache directory not found in vendor/npm-cache"
+fi
+
+success "Vendor cache extracted ($(du -sh "$VENDOR_CACHE" | cut -f1))"
 
 # ── Mode ───────────────────────────────────────────────────────────────────────
 
@@ -104,6 +115,10 @@ header "Installing dependencies (offline)"
 cd "$ROOT_DIR"
 npm ci --cache "$VENDOR_CACHE" --prefer-offline
 success "Dependencies installed"
+
+# Clean up extracted cache
+rm -rf "$VENDOR_DIR"
+info "Cleaned up temporary vendor directory"
 
 # ── Build (production only) ────────────────────────────────────────────────────
 
@@ -200,7 +215,7 @@ echo "  Setup complete! (${MODE} mode, offline)"
 echo ""
 if [[ "$MODE" == "dev" ]]; then
   echo "  Access the app at:"
-  echo "    http://$(hostname):5173  (client)"
+  echo "    http://$(hostname):8080  (client)"
   echo "    http://$(hostname):3001  (API)"
 else
   echo "  Access the app at:"

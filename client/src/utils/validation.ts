@@ -8,9 +8,20 @@ export function isValidIpv4(ip: string): boolean {
   });
 }
 
-/** Validate an IPv6 address (basic check) */
+/** Validate an IPv6 address */
 export function isValidIpv6(ip: string): boolean {
-  return /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/.test(ip);
+  // Must contain at least one colon
+  if (!ip.includes(':')) return false;
+  // Cannot have more than one ::
+  const doubleColonCount = (ip.match(/::/g) || []).length;
+  if (doubleColonCount > 1) return false;
+  // Split into groups; :: expands to fill missing groups
+  const groups = ip.split(':');
+  // With :: present, groups can be 3-8; without, must be exactly 8
+  if (doubleColonCount === 0 && groups.length !== 8) return false;
+  if (doubleColonCount === 1 && groups.length > 8) return false;
+  // Each group must be 0-4 hex digits (empty allowed for :: expansion)
+  return groups.every(g => /^[0-9a-fA-F]{0,4}$/.test(g));
 }
 
 /** Validate an IP address (v4 or v6) */

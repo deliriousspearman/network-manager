@@ -9,15 +9,20 @@ import {
   GitFork,
   Settings,
   ScrollText,
+  Database,
   Wrench,
   Sun,
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Clock,
+  Bot,
+  type LucideIcon,
 } from 'lucide-react';
 import { ProjectContext } from '../../contexts/ProjectContext';
 import { fetchProjects } from '../../api/projects';
 import ProjectSwitcher from './ProjectSwitcher';
+import CollapsedProjectFlyout from './CollapsedProjectFlyout';
 import { getStorage, setStorage } from '../../utils/storage';
 
 function getInitialTheme(): 'light' | 'dark' {
@@ -29,6 +34,9 @@ function getInitialTheme(): 'light' | 'dark' {
 function getInitialCollapsed(): boolean {
   return getStorage('sidebar-collapsed') === 'true';
 }
+
+type NavItem = { to: string; label: string; icon: LucideIcon; end?: boolean };
+type NavSection = { label: string; items: NavItem[] };
 
 export default function Sidebar() {
   const [theme, setTheme] = useState<'light' | 'dark'>(getInitialTheme);
@@ -53,25 +61,76 @@ export default function Sidebar() {
     document.documentElement.setAttribute('data-sidebar-collapsed', String(collapsed));
   }, [collapsed]);
 
+  const [flyoutOpen, setFlyoutOpen] = useState(false);
   const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
 
   const projectSlug = projectCtx?.project?.slug;
   const basePath = projectSlug ? `/p/${projectSlug}` : '/p/default';
 
-  const navItems = [
-    { to: `${basePath}/overview`, label: 'Overview', icon: LayoutDashboard },
-    { to: `${basePath}/devices`, label: 'Devices', icon: Monitor },
-    { to: `${basePath}/subnets`, label: 'Subnets', icon: Network },
-    { to: `${basePath}/credentials`, label: 'Credentials', icon: KeyRound },
-    { to: `${basePath}/diagram`, label: 'Network Diagram', icon: GitFork },
-    { to: `${basePath}/settings`, label: 'Project Settings', icon: Settings },
-    { to: `${basePath}/logs`, label: 'Project Logs', icon: ScrollText },
+  const projectSections: NavSection[] = [
+    {
+      label: 'Inventory',
+      items: [
+        { to: `${basePath}/overview`, label: 'Overview', icon: LayoutDashboard },
+        { to: `${basePath}/devices`, label: 'Devices', icon: Monitor },
+        { to: `${basePath}/subnets`, label: 'Subnets', icon: Network },
+        { to: `${basePath}/agents`, label: 'Agents', icon: Bot },
+      ],
+    },
+    {
+      label: 'Visualize',
+      items: [
+        { to: `${basePath}/diagram`, label: 'Network Diagram', icon: GitFork },
+        { to: `${basePath}/timeline`, label: 'Timeline', icon: Clock },
+      ],
+    },
+    {
+      label: 'Data',
+      items: [
+        { to: `${basePath}/credentials`, label: 'Credentials', icon: KeyRound },
+        { to: `${basePath}/query`, label: 'SQL Query', icon: Database },
+      ],
+    },
+    {
+      label: 'Project',
+      items: [
+        { to: `${basePath}/settings`, label: 'Settings', icon: Settings },
+        { to: `${basePath}/logs`, label: 'Activity Log', icon: ScrollText },
+      ],
+    },
   ];
+
+  const adminSection: NavSection = {
+    label: 'Admin',
+    items: [
+      { to: '/admin', label: 'Admin Settings', icon: Wrench, end: true },
+      { to: '/admin/logs', label: 'Admin Logs', icon: ScrollText },
+    ],
+  };
 
   function switchProject(slug: string) {
     const currentSubPath = location.pathname.replace(/^\/p\/[^/]+/, '');
     navigate(`/p/${slug}${currentSubPath || '/overview'}`);
   }
+
+  const renderItem = ({ to, label, icon: Icon, end }: NavItem) => (
+    <NavLink
+      key={to}
+      to={to}
+      end={end}
+      className={({ isActive }) => isActive ? 'active' : ''}
+    >
+      <Icon size={17} />
+      {collapsed ? <span className="nav-tooltip">{label}</span> : <span>{label}</span>}
+    </NavLink>
+  );
+
+  const renderSection = (section: NavSection) => (
+    <div key={section.label} className="sidebar-nav-section">
+      {!collapsed && <div className="sidebar-nav-label">{section.label}</div>}
+      {section.items.map(renderItem)}
+    </div>
+  );
 
   return (
     <aside className={`sidebar${collapsed ? ' collapsed' : ''}`}>
@@ -86,7 +145,6 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Project switcher */}
       {!collapsed && projects.length > 0 && (
         <ProjectSwitcher
           projects={projects}
@@ -95,74 +153,42 @@ export default function Sidebar() {
         />
       )}
       {collapsed && projects.length > 0 && (
-        <div style={{ padding: '0 0.5rem', marginBottom: '0.5rem' }}>
+        <div className="collapsed-project-wrapper">
           <button
-            onClick={() => {
-              const currentIndex = projects.findIndex(p => p.slug === projectSlug);
-              const next = projects[(currentIndex + 1) % projects.length];
-              if (next) switchProject(next.slug);
-            }}
+            onClick={() => setFlyoutOpen(o => !o)}
             title={`Project: ${projectCtx?.project?.name || 'Select'}`}
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0.5rem',
-              background: 'var(--color-bg-secondary, var(--color-bg))',
-              border: '1px solid var(--color-border)',
-              borderRadius: '6px',
-              cursor: 'pointer',
-              color: 'var(--color-text)',
-              fontSize: '0.7rem',
-              fontWeight: 600,
-            }}
+            className={`collapsed-project-btn${flyoutOpen ? ' active' : ''}`}
           >
-            {(projectCtx?.project?.name || 'P')[0].toUpperCase()}
+            {projectCtx?.project?.short_name || (projectCtx?.project?.name || 'P').substring(0, 2).toUpperCase()}
           </button>
+          {flyoutOpen && (
+            <CollapsedProjectFlyout
+              projects={projects}
+              currentSlug={projectSlug || ''}
+              onSwitch={switchProject}
+              onClose={() => setFlyoutOpen(false)}
+            />
+          )}
         </div>
       )}
 
       <nav>
-        {navItems.map(({ to, label, icon: Icon }) => (
-          <NavLink
-            key={to}
-            to={to}
-            className={({ isActive }) => isActive ? 'active' : ''}
-          >
-            <Icon size={18} />
-            {collapsed ? <span className="nav-tooltip">{label}</span> : <span>{label}</span>}
-          </NavLink>
-        ))}
-        <div className="nav-bottom-group">
-          <NavLink
-            to="/admin"
-            end
-            className={({ isActive }) => isActive ? 'active' : ''}
-          >
-            <Wrench size={18} />
-            {collapsed ? <span className="nav-tooltip">Admin Settings</span> : <span>Admin Settings</span>}
-          </NavLink>
-          <NavLink
-            to="/admin/logs"
-            className={({ isActive }) => isActive ? 'active' : ''}
-          >
-            <ScrollText size={18} />
-            {collapsed ? <span className="nav-tooltip">Admin Logs</span> : <span>Admin Logs</span>}
-          </NavLink>
+        {projectSections.map(renderSection)}
+        <div className="sidebar-nav-bottom">
+          {renderSection(adminSection)}
         </div>
       </nav>
 
-      <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? 'Dark Mode' : 'Light Mode'}>
-        {theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}
-        {collapsed ? (
-          <span className="nav-tooltip">{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
-        ) : (
-          <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
-        )}
-      </button>
-      <div style={{ marginTop: 'auto', padding: '0.25rem 0 0.4rem', fontSize: '0.65rem', color: '#999', textAlign: 'center' }}>
-        v0.3.0
+      <div className="sidebar-footer">
+        <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? 'Dark Mode' : 'Light Mode'}>
+          {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
+          {collapsed ? (
+            <span className="nav-tooltip">{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
+          ) : (
+            <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
+          )}
+        </button>
+        {!collapsed && <div className="sidebar-version">v0.5.1</div>}
       </div>
     </aside>
   );

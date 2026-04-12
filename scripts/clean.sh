@@ -8,7 +8,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
 DB_DIR="$ROOT_DIR/server/data"
 
-echo "This will permanently delete all devices, subnets, connections, and diagram data."
+echo "This will permanently delete all project data (devices, subnets, connections,"
+echo "credentials, timeline entries, diagram positions, settings, and logs)."
 read -rp "Are you sure? (yes/no): " confirm
 
 if [[ "$confirm" != "yes" ]]; then

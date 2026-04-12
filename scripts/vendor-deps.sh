@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Downloads all npm dependencies into vendor/ for offline deployment.
-# Run this on an internet-connected machine, then transfer the whole
-# project directory (including vendor/) to the target.
+# Downloads all npm dependencies and packs them into vendor-deps.tar.gz
+# for offline deployment. Run this on an internet-connected machine,
+# then commit vendor-deps.tar.gz to git.
+#
+# The setup-offline.sh script extracts and installs from this archive.
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$SCRIPT_DIR/.."
-VENDOR_CACHE="$ROOT_DIR/vendor/npm-cache"
+VENDOR_DIR="$ROOT_DIR/vendor"
+VENDOR_CACHE="$VENDOR_DIR/npm-cache"
+TARBALL="$ROOT_DIR/vendor-deps.tar.gz"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -32,36 +36,39 @@ command -v npm  >/dev/null 2>&1 || error "npm not found."
 
 success "node $(node --version), npm $(npm --version)"
 
-# ── Clean old vendor cache ────────────────────────────────────────────────────
+# ── Clean old artifacts ──────────────────────────────────────────────────────
 
-header "Preparing vendor cache"
+header "Preparing"
 
-if [[ -d "$VENDOR_CACHE" ]]; then
-  info "Removing old vendor cache..."
-  rm -rf "$VENDOR_CACHE"
+if [[ -d "$VENDOR_DIR" ]]; then
+  info "Removing old vendor directory..."
+  rm -rf "$VENDOR_DIR"
+fi
+
+if [[ -f "$TARBALL" ]]; then
+  info "Removing old vendor-deps.tar.gz..."
+  rm -f "$TARBALL"
 fi
 
 mkdir -p "$VENDOR_CACHE"
 
 # ── Download dependencies ─────────────────────────────────────────────────────
 
-header "Downloading dependencies into vendor cache"
+header "Downloading dependencies into cache"
 
 cd "$ROOT_DIR"
 npm ci --cache "$VENDOR_CACHE"
 
-# ── Verify ────────────────────────────────────────────────────────────────────
+# ── Verify cache ─────────────────────────────────────────────────────────────
 
-header "Verifying vendor cache"
+header "Verifying cache"
 
 if [[ ! -d "$VENDOR_CACHE/_cacache" ]]; then
-  error "Cache verification failed: _cacache directory not found in vendor/npm-cache"
+  error "Cache verification failed: _cacache directory not found"
 fi
 
-success "Cache populated"
-
 CACHE_SIZE=$(du -sh "$VENDOR_CACHE" | cut -f1)
-info "Cache size: $CACHE_SIZE"
+success "Cache populated ($CACHE_SIZE)"
 
 if [[ -d "$VENDOR_CACHE/_prebuilds" ]]; then
   success "Native prebuilds cached (better-sqlite3)"
@@ -69,19 +76,34 @@ else
   info "No prebuilds cached — target machine will need build tools (python3, make, g++)"
 fi
 
+# ── Pack into tar.gz ──────────────────────────────────────────────────────────
+
+header "Creating vendor-deps.tar.gz"
+
+tar czf "$TARBALL" -C "$VENDOR_DIR" npm-cache
+
+TARBALL_SIZE=$(du -sh "$TARBALL" | cut -f1)
+success "vendor-deps.tar.gz created ($TARBALL_SIZE)"
+
+# ── Clean up temp vendor dir ─────────────────────────────────────────────────
+
+rm -rf "$VENDOR_DIR"
+success "Cleaned up temporary vendor directory"
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo
 echo "══════════════════════════════════════════"
-echo "  Vendor cache ready!"
+echo "  Vendor archive ready!"
 echo ""
 echo "  Node:     $(node --version)"
 echo "  Platform: $(uname -m)"
-echo "  Cache:    vendor/npm-cache ($CACHE_SIZE)"
+echo "  Archive:  vendor-deps.tar.gz ($TARBALL_SIZE)"
 echo ""
 echo "  Next steps:"
-echo "    1. Transfer this project to the offline machine"
-echo "    2. Run: ./scripts/setup-offline.sh"
+echo "    1. Commit vendor-deps.tar.gz to git"
+echo "    2. On the offline machine, clone and run:"
+echo "       ./scripts/setup-offline.sh"
 echo ""
 echo "  Note: Native bindings (better-sqlite3) are"
 echo "  platform-specific. The target machine must have"

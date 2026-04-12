@@ -1,10 +1,29 @@
 import { useState, useEffect } from 'react';
-import { Pencil, Check, Trash2, Plus } from 'lucide-react';
+import { Pencil, Check, Trash2, Plus, Bot } from 'lucide-react';
 import type { LegendItem } from 'shared/types';
+import { CredentialKey } from './nodes/CredentialKey';
+import { FavouriteStar } from './nodes/FavouriteStar';
 
 interface DiagramLegendProps {
   items: LegendItem[];
   onUpdate: (items: LegendItem[]) => void;
+}
+
+function BuiltinIcon({ type }: { type: string }) {
+  switch (type) {
+    case 'credential-used':
+      return <CredentialKey used size="1.1rem" />;
+    case 'credential-unused':
+      return <CredentialKey used={false} size="1.1rem" />;
+    case 'favourite':
+      return <FavouriteStar size="1.1rem" />;
+    case 'av':
+      return <span>🛡️</span>;
+    case 'agent':
+      return <Bot size={16} />;
+    default:
+      return null;
+  }
 }
 
 export default function DiagramLegend({ items, onUpdate }: DiagramLegendProps) {
@@ -33,6 +52,11 @@ export default function DiagramLegend({ items, onUpdate }: DiagramLegendProps) {
     setLocalItems(localItems.map((item, i) => i === index ? { ...item, [field]: value } : item));
   }
 
+  function renderIcon(item: LegendItem) {
+    if (item.builtinIcon) return <BuiltinIcon type={item.builtinIcon} />;
+    return <>{item.icon}</>;
+  }
+
   return (
     <div className="diagram-legend">
       <div className="diagram-legend-header">
@@ -52,13 +76,19 @@ export default function DiagramLegend({ items, onUpdate }: DiagramLegendProps) {
         <>
           {localItems.map((item, i) => (
             <div key={i} className="diagram-legend-item">
-              <input
-                type="text"
-                value={item.icon}
-                onChange={e => handleChange(i, 'icon', e.target.value)}
-                placeholder="🔒"
-                className="diagram-legend-icon-input"
-              />
+              {item.builtinIcon ? (
+                <span className="diagram-legend-icon diagram-legend-builtin-icon">
+                  <BuiltinIcon type={item.builtinIcon} />
+                </span>
+              ) : (
+                <input
+                  type="text"
+                  value={item.icon}
+                  onChange={e => handleChange(i, 'icon', e.target.value)}
+                  placeholder="🔒"
+                  className="diagram-legend-icon-input"
+                />
+              )}
               <input
                 type="text"
                 value={item.label}
@@ -81,7 +111,7 @@ export default function DiagramLegend({ items, onUpdate }: DiagramLegendProps) {
           ) : (
             items.map((item, i) => (
               <div key={i} className="diagram-legend-item">
-                <span className="diagram-legend-icon">{item.icon}</span>
+                <span className="diagram-legend-icon">{renderIcon(item)}</span>
                 <span className="diagram-legend-label">{item.label}</span>
               </div>
             ))

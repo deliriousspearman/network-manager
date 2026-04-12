@@ -11,7 +11,7 @@ const router = Router({ mergeParams: true });
 
 const listSelect = `
   SELECT c.id, c.device_id, c.host, c.username, c.password, c.type, c.source,
-         c.file_name, c.created_at, c.updated_at, c.project_id,
+         c.file_name, c.used, c.hidden, c.created_at, c.updated_at, c.project_id,
          d.name AS device_name,
          (c.file_name IS NOT NULL) AS has_file
   FROM credentials c
@@ -34,28 +34,43 @@ router.get('/', (req, res) => {
   }
 
   const search = ((req.query.search as string) || '').trim();
-  let searchClause = '';
-  const searchParams: any[] = [];
+  let filterClause = '';
+  const filterParams: any[] = [];
   if (search) {
     const like = `%${search}%`;
-    searchClause = ` AND (c.host LIKE ? OR c.username LIKE ? OR c.password LIKE ? OR c.type LIKE ? OR c.source LIKE ? OR d.name LIKE ?)`;
-    searchParams.push(like, like, like, like, like, like);
+    filterClause += ` AND (c.host LIKE ? OR c.username LIKE ? OR c.password LIKE ? OR c.type LIKE ? OR c.source LIKE ? OR d.name LIKE ?)`;
+    filterParams.push(like, like, like, like, like, like);
+  }
+  const usedFilter = req.query.used as string | undefined;
+  if (usedFilter === '1') {
+    filterClause += ` AND c.used = 1`;
+  } else if (usedFilter === '0') {
+    filterClause += ` AND c.used = 0`;
+  }
+  const hiddenFilter = req.query.hidden as string | undefined;
+  if (hiddenFilter === '1') {
+    filterClause += ` AND c.hidden = 1`;
+  } else if (hiddenFilter === 'all') {
+    // No hidden filter — return both visible and hidden credentials
+  } else {
+    // By default, hide hidden credentials unless explicitly requested
+    filterClause += ` AND c.hidden = 0`;
   }
   const sortCol = CRED_SORT_MAP[req.query.sort as string] || 'c.created_at';
   const sortDir = req.query.order === 'desc' ? 'DESC' : 'ASC';
-  const where = `WHERE c.project_id = ?${searchClause}`;
+  const where = `WHERE c.project_id = ?${filterClause}`;
 
   if (req.query.page !== undefined) {
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
     const offset = (page - 1) * limit;
-    const baseParams = [projectId, ...searchParams];
+    const baseParams = [projectId, ...filterParams];
     const { total } = db.prepare(`SELECT COUNT(*) as total FROM credentials c LEFT JOIN devices d ON c.device_id = d.id ${where}`).get(...baseParams) as { total: number };
     const items = db.prepare(`${listSelect} ${where} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...baseParams, limit, offset);
     return res.json({ items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
   }
 
-  res.json(db.prepare(`${listSelect} ${where} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...searchParams));
+  res.json(db.prepare(`${listSelect} ${where} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...filterParams));
 });
 
 router.get('/:id', (req, res) => {
@@ -82,7 +97,7 @@ router.get('/:id/file', (req, res) => {
 
 router.post('/', (req, res) => {
   const projectId = res.locals.projectId;
-  const { device_id, host, username, password, type, source, file_name, file_data } = req.body as CreateCredentialRequest;
+  const { device_id, host, username, password, type, source, file_name, file_data, used } = req.body as CreateCredentialRequest;
   if (!username?.trim()) {
     res.status(400).json({ error: 'username is required' });
     return;
@@ -94,12 +109,13 @@ router.post('/', (req, res) => {
   }
   const safeFileName = file_name ? sanitizeFilename(file_name) : null;
   const result = db.prepare(
-    `INSERT INTO credentials (device_id, host, username, password, type, source, file_name, file_data, project_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO credentials (device_id, host, username, password, type, source, file_name, file_data, used, project_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     device_id ?? null, optionalString(host, 500), requireString(username, 'username', 200), optionalString(password, 500),
     optionalOneOf(type, CREDENTIAL_TYPES), optionalString(source, 500),
     safeFileName, fileBuffer,
+    used ? 1 : 0,
     projectId
   );
   const credential = db.prepare(`${listSelect} WHERE c.id = ?`).get(result.lastInsertRowid);
@@ -109,14 +125,18 @@ router.post('/', (req, res) => {
 
 router.put('/:id', (req, res) => {
   const projectId = res.locals.projectId;
-  const { device_id, host, username, password, type, source, file_name, file_data } = req.body as CreateCredentialRequest;
+  const { device_id, host, username, password, type, source, file_name, file_data, used } = req.body as CreateCredentialRequest;
   if (!username?.trim()) {
     res.status(400).json({ error: 'username is required' });
     return;
   }
-  const existing = db.prepare('SELECT id FROM credentials WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
+  const existing = db.prepare('SELECT id, updated_at FROM credentials WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { id: number; updated_at: string } | undefined;
   if (!existing) {
     res.status(404).json({ error: 'Credential not found' });
+    return;
+  }
+  if (req.body.updated_at && req.body.updated_at !== existing.updated_at) {
+    res.status(409).json({ error: 'Record was modified by another user. Please refresh and try again.' });
     return;
   }
   const validUser = requireString(username, 'username', 200);
@@ -124,6 +144,7 @@ router.put('/:id', (req, res) => {
   const validPass = optionalString(password, 500);
   const validType = optionalOneOf(type, CREDENTIAL_TYPES);
   const validSource = optionalString(source, 500);
+  const validUsed = used ? 1 : 0;
 
   // If file_data is provided, update file fields; if file_name is explicitly empty string, clear file
   if (file_data) {
@@ -133,34 +154,47 @@ router.put('/:id', (req, res) => {
       return;
     }
     db.prepare(
-      `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, file_name=?, file_data=?, updated_at=datetime('now') WHERE id=?`
+      `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, file_name=?, file_data=?, used=?, updated_at=datetime('now') WHERE id=?`
     ).run(
       device_id ?? null, validHost, validUser, validPass,
       validType, validSource,
       file_name ? sanitizeFilename(file_name) : null, fileBuffer,
-      req.params.id
+      validUsed, req.params.id
     );
   } else if (file_name === '') {
     // Explicitly clear file
     db.prepare(
-      `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, file_name=NULL, file_data=NULL, updated_at=datetime('now') WHERE id=?`
+      `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, file_name=NULL, file_data=NULL, used=?, updated_at=datetime('now') WHERE id=?`
     ).run(
       device_id ?? null, validHost, validUser, validPass,
       validType, validSource,
-      req.params.id
+      validUsed, req.params.id
     );
   } else {
     // No file change
     db.prepare(
-      `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, updated_at=datetime('now') WHERE id=?`
+      `UPDATE credentials SET device_id=?, host=?, username=?, password=?, type=?, source=?, used=?, updated_at=datetime('now') WHERE id=?`
     ).run(
       device_id ?? null, validHost, validUser, validPass,
       validType, validSource,
-      req.params.id
+      validUsed, req.params.id
     );
   }
   const credential = db.prepare(`${listSelect} WHERE c.id = ?`).get(req.params.id);
   logActivity({ projectId, action: 'updated', resourceType: 'credential', resourceId: Number(req.params.id), resourceName: username.trim() });
+  res.json(credential);
+});
+
+router.patch('/:id/hidden', (req, res) => {
+  const projectId = res.locals.projectId;
+  const { hidden } = req.body as { hidden: boolean };
+  const existing = db.prepare('SELECT id FROM credentials WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
+  if (!existing) {
+    res.status(404).json({ error: 'Credential not found' });
+    return;
+  }
+  db.prepare('UPDATE credentials SET hidden = ?, updated_at = datetime(\'now\') WHERE id = ?').run(hidden ? 1 : 0, req.params.id);
+  const credential = db.prepare(`${listSelect} WHERE c.id = ?`).get(req.params.id);
   res.json(credential);
 });
 

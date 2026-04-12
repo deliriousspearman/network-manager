@@ -221,7 +221,7 @@ echo "  Setup complete! (${MODE} mode)"
 echo ""
 if [[ "$MODE" == "dev" ]]; then
   echo "  Access the app at:"
-  echo "    http://$(hostname):5173  (client)"
+  echo "    http://$(hostname):8080  (client)"
   echo "    http://$(hostname):3001  (API)"
 else
   echo "  Access the app at:"

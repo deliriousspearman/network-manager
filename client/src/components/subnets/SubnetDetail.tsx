@@ -2,7 +2,9 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchSubnet, deleteSubnet } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
+import { rowNavHandlers } from '../../utils/navigation';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
@@ -11,6 +13,7 @@ export default function SubnetDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const confirm = useConfirmDialog();
+  const toast = useToast();
   const { projectId, project } = useProject();
   const base = `/p/${project.slug}`;
   const subnetId = Number(id);
@@ -26,6 +29,7 @@ export default function SubnetDetail() {
       queryClient.invalidateQueries({ queryKey: ['subnets', projectId] });
       navigate(`${base}/subnets`);
     },
+    onError: () => toast('Failed to delete subnet', 'error'),
   });
 
   if (isLoading) return <LoadingSpinner />;
@@ -90,7 +94,7 @@ export default function SubnetDetail() {
             </thead>
             <tbody>
               {subnet.devices.map((d: any) => (
-                <tr key={d.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`${base}/devices/${d.id}`)}>
+                <tr key={d.id} style={{ cursor: 'pointer' }} {...rowNavHandlers(`${base}/devices/${d.id}`, navigate)}>
                   <td>{d.name}</td>
                   <td><span className={`badge badge-${d.type}`}>{DEVICE_TYPE_LABELS[d.type as keyof typeof DEVICE_TYPE_LABELS] || d.type}</span></td>
                   <td>{d.primary_ip || '—'}</td>

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
+import { sanitizeRichText, stripHtml } from '../sanitizeHtml.js';
 import type { CreateProjectRequest, UpdateProjectRequest } from 'shared/types.js';
 
 const router = Router();
@@ -47,7 +48,7 @@ router.get('/by-slug/:slug', (req, res) => {
 });
 
 router.post('/', (req, res) => {
-  const { name, slug, description } = req.body as CreateProjectRequest;
+  const { name, slug, short_name, description } = req.body as CreateProjectRequest;
   if (!name?.trim() || !slug?.trim()) {
     res.status(400).json({ error: 'name and slug are required' });
     return;
@@ -64,15 +65,23 @@ router.post('/', (req, res) => {
     res.status(400).json({ error: 'description must be at most 50000 characters' });
     return;
   }
+  const trimmedShortName = short_name?.trim() || name.trim().substring(0, 2).toUpperCase();
+  if (trimmedShortName.length > 2) {
+    res.status(400).json({ error: 'short_name must be at most 2 characters' });
+    return;
+  }
   const slugPattern = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
   if (!slugPattern.test(slug)) {
     res.status(400).json({ error: 'slug must be lowercase alphanumeric with dashes only' });
     return;
   }
+  // description is user-authored HTML rendered via dangerouslySetInnerHTML on the client.
+  // Sanitize server-side — client DOMPurify can be bypassed by calling the API directly.
+  const cleanDescription = description ? sanitizeRichText(description).trim() || null : null;
   try {
     const result = db.prepare(
-      'INSERT INTO projects (name, slug, description) VALUES (?, ?, ?)'
-    ).run(name.trim(), slug.trim(), description?.trim() || null);
+      'INSERT INTO projects (name, slug, short_name, description) VALUES (?, ?, ?, ?)'
+    ).run(name.trim(), slug.trim(), trimmedShortName, cleanDescription);
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(result.lastInsertRowid);
     logActivity({ action: 'created', resourceType: 'project', resourceId: result.lastInsertRowid as number, resourceName: name.trim() });
     res.status(201).json(project);
@@ -86,14 +95,34 @@ router.post('/', (req, res) => {
 });
 
 router.put('/:id', (req, res) => {
-  const { name, slug, description, about_title } = req.body as UpdateProjectRequest;
+  const { name, slug, short_name, description, about_title } = req.body as UpdateProjectRequest;
   const existing = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id) as any;
   if (!existing) return res.status(404).json({ error: 'Project not found' });
 
   const newName = name?.trim() || existing.name;
   const newSlug = slug?.trim() || existing.slug;
-  const newDesc = description !== undefined ? (description || null) : existing.description;
-  const newAboutTitle = about_title !== undefined ? (about_title?.trim() || null) : existing.about_title;
+  const newShortName = short_name !== undefined ? (short_name.trim() || existing.short_name) : existing.short_name;
+  // description is rich HTML — sanitize; about_title is plain text in the UI so strip all HTML.
+  const newDesc = description !== undefined
+    ? (description ? sanitizeRichText(description) || null : null)
+    : existing.description;
+  const newAboutTitle = about_title !== undefined
+    ? (about_title ? stripHtml(about_title).trim() || null : null)
+    : existing.about_title;
+
+  if (newShortName.length > 2) {
+    res.status(400).json({ error: 'short_name must be at most 2 characters' });
+    return;
+  }
+
+  if (newDesc != null && newDesc.length > 50000) {
+    res.status(400).json({ error: 'description must be at most 50000 characters' });
+    return;
+  }
+  if (newAboutTitle != null && newAboutTitle.length > 200) {
+    res.status(400).json({ error: 'about_title must be at most 200 characters' });
+    return;
+  }
 
   if (newSlug !== existing.slug) {
     const slugPattern = /^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$/;
@@ -105,8 +134,8 @@ router.put('/:id', (req, res) => {
 
   try {
     db.prepare(
-      `UPDATE projects SET name = ?, slug = ?, description = ?, about_title = ?, updated_at = datetime('now') WHERE id = ?`
-    ).run(newName, newSlug, newDesc, newAboutTitle, req.params.id);
+      `UPDATE projects SET name = ?, slug = ?, short_name = ?, description = ?, about_title = ?, updated_at = datetime('now') WHERE id = ?`
+    ).run(newName, newSlug, newShortName, newDesc, newAboutTitle, req.params.id);
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(req.params.id);
     logActivity({ action: 'updated', resourceType: 'project', resourceId: Number(req.params.id), resourceName: newName });
     res.json(project);

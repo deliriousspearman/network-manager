@@ -8,6 +8,7 @@ const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'im
 const MAX_ICON_SIZE = 512 * 1024; // 512KB for icons
 const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB for standalone diagram images
 const VALID_DEVICE_TYPES = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone', 'hypervisor'];
+const VALID_AGENT_TYPES = ['wazuh', 'zabbix', 'elk', 'prometheus', 'grafana', 'nagios', 'datadog', 'splunk', 'ossec', 'custom'];
 
 // ── Type default icons ───────────────────────────────────────
 
@@ -72,6 +73,72 @@ router.delete('/type-defaults/:deviceType', (req, res) => {
   const projectId = res.locals.projectId;
   const { deviceType } = req.params;
   db.prepare('DELETE FROM device_type_icons WHERE project_id = ? AND device_type = ?').run(projectId, deviceType);
+  res.status(204).send();
+});
+
+// ── Agent type default icons ─────────────────────────────────
+
+// List which agent types have custom icons (metadata only)
+router.get('/agent-type-defaults', (_req, res) => {
+  const projectId = res.locals.projectId;
+  const rows = db.prepare(
+    'SELECT id, agent_type, filename, created_at FROM agent_type_icons WHERE project_id = ?'
+  ).all(projectId);
+  res.json(rows);
+});
+
+// Serve an agent type default icon as binary
+router.get('/agent-type-defaults/:agentType/image', (req, res) => {
+  const projectId = res.locals.projectId;
+  const { agentType } = req.params;
+  const row = db.prepare(
+    'SELECT mime_type, data FROM agent_type_icons WHERE project_id = ? AND agent_type = ?'
+  ).get(projectId, agentType) as { mime_type: string; data: string } | undefined;
+  if (!row) return res.status(404).json({ error: 'No custom icon for this agent type' });
+  const buffer = Buffer.from(row.data, 'base64');
+  res.setHeader('Content-Type', row.mime_type);
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(buffer);
+});
+
+// Upload/replace an agent type default icon
+router.put('/agent-type-defaults/:agentType', (req, res) => {
+  const projectId = res.locals.projectId;
+  const { agentType } = req.params;
+  if (!VALID_AGENT_TYPES.includes(agentType)) {
+    return res.status(400).json({ error: 'Invalid agent type' });
+  }
+  const { filename, mime_type, data } = req.body as { filename: string; mime_type: string; data: string };
+  if (!filename || !mime_type || !data) {
+    return res.status(400).json({ error: 'filename, mime_type and data are required' });
+  }
+  if (!ALLOWED_MIMES.includes(mime_type)) {
+    return res.status(400).json({ error: `Invalid image type. Allowed: ${ALLOWED_MIMES.join(', ')}` });
+  }
+  const decoded = Buffer.from(data, 'base64');
+  if (decoded.length > MAX_ICON_SIZE) {
+    return res.status(400).json({ error: 'Icon exceeds 512 KB limit' });
+  }
+  const safeName = sanitizeFilename(filename);
+  try {
+    db.prepare(
+      `INSERT INTO agent_type_icons (project_id, agent_type, filename, mime_type, data)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT(project_id, agent_type) DO UPDATE SET filename = excluded.filename, mime_type = excluded.mime_type, data = excluded.data, created_at = datetime('now')`
+    ).run(projectId, agentType, safeName, mime_type, data);
+    res.json({ ok: true });
+  } catch (err: unknown) {
+    console.error('Failed to upload agent type default icon:', err);
+    const msg = err instanceof Error ? err.message : 'Database error';
+    res.status(500).json({ error: msg });
+  }
+});
+
+// Delete an agent type default icon
+router.delete('/agent-type-defaults/:agentType', (req, res) => {
+  const projectId = res.locals.projectId;
+  const { agentType } = req.params;
+  db.prepare('DELETE FROM agent_type_icons WHERE project_id = ? AND agent_type = ?').run(projectId, agentType);
   res.status(204).send();
 });
 

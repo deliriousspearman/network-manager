@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Dog head silhouette -->
+  <path d="M22 56 C22 36 38 22 60 22 C82 22 100 38 100 60 L100 90 C100 102 92 110 80 110 L48 110 C34 110 22 100 22 86 Z"/>
+  <!-- Ears -->
+  <path d="M30 30 L22 14 L42 24"/>
+  <path d="M90 30 L100 14 L80 24"/>
+  <!-- Eye -->
+  <circle cx="76" cy="58" r="4" fill="currentColor"/>
+  <!-- Snout -->
+  <path d="M44 76 L60 76 L52 88 Z" fill="currentColor"/>
+  <!-- Collar with tag -->
+  <line x1="40" y1="100" x2="84" y2="100"/>
+  <circle cx="62" cy="106" r="3"/>
+</svg>

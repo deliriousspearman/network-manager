@@ -458,6 +458,110 @@ success "Highlight rule: CLOSED (red)"
 post "$P/highlight-rules" '{"keyword": "FILTERED", "category": "port_state", "color": "#f59e0b", "text_color": "#ffffff"}' > /dev/null
 success "Highlight rule: FILTERED (amber)"
 
+# ── Create timeline entries ────────────────────────────────────────────────────
+
+header "Creating timeline entries"
+
+post "$P/timeline" '{
+  "title": "Project created",
+  "description": "Initial setup of the Home Lab network documentation.",
+  "category": "milestone",
+  "event_date": "2025-01-15"
+}' > /dev/null
+success "Timeline: Project created"
+
+post "$P/timeline" '{
+  "title": "Core network deployed",
+  "description": "Installed pfSense router, UniFi switch, and configured VLANs 10/20/30.",
+  "category": "change",
+  "event_date": "2025-01-20"
+}' > /dev/null
+success "Timeline: Core network deployed"
+
+post "$P/timeline" '{
+  "title": "Decided on Proxmox over ESXi",
+  "description": "Chose Proxmox VE for virtualisation — free, open source, and supports both KVM and LXC. ESXi free tier was too limited.",
+  "category": "decision",
+  "event_date": "2025-02-01"
+}' > /dev/null
+success "Timeline: Proxmox decision"
+
+post "$P/timeline" '{
+  "title": "NAS intermittent disk errors",
+  "description": "Drive 3 showing SMART warnings. Ordered replacement. RAIDZ2 still healthy with one degraded disk.",
+  "category": "incident",
+  "event_date": "2025-03-10"
+}' > /dev/null
+success "Timeline: NAS disk incident"
+
+post "$P/timeline" '{
+  "title": "IoT VLAN isolated from servers",
+  "description": "Added firewall rules to block IoT subnet from reaching the server VLAN directly. Only DNS and NTP allowed.",
+  "category": "change",
+  "event_date": "2025-03-15"
+}' > /dev/null
+success "Timeline: IoT isolation"
+
+post "$P/timeline" '{
+  "title": "Pi-hole DNS blocking live",
+  "description": "Pi-hole VM deployed and set as primary DNS for all VLANs. Blocking ads and telemetry across the network.",
+  "category": "milestone",
+  "event_date": "2025-02-10"
+}' > /dev/null
+success "Timeline: Pi-hole live"
+
+# ── Create agents ─────────────────────────────────────────────────────────────
+
+header "Creating agents"
+
+post "$P/agents" "{
+  \"name\": \"Wazuh Agent\",
+  \"agent_type\": \"wazuh\",
+  \"device_id\": $DOCKER_ID,
+  \"checkin_schedule\": \"every 60s\",
+  \"config\": \"<ossec_config>\\n  <client>\\n    <server>\\n      <address>10.0.2.50</address>\\n      <port>1514</port>\\n    </server>\\n  </client>\\n</ossec_config>\",
+  \"disk_path\": \"/var/ossec\",
+  \"status\": \"active\",
+  \"version\": \"4.7.2\"
+}" > /dev/null
+success "Agent: Wazuh on Docker Host"
+
+post "$P/agents" "{
+  \"name\": \"Zabbix Agent\",
+  \"agent_type\": \"zabbix\",
+  \"device_id\": $PROX_ID,
+  \"checkin_schedule\": \"every 30s\",
+  \"config\": \"Server=10.0.2.50\\nServerActive=10.0.2.50\\nHostname=proxmox-01\\nEnableRemoteCommands=1\",
+  \"disk_path\": \"/etc/zabbix\",
+  \"status\": \"active\",
+  \"version\": \"6.4.12\"
+}" > /dev/null
+success "Agent: Zabbix on Proxmox-01"
+
+post "$P/agents" "{
+  \"name\": \"Prometheus Node Exporter\",
+  \"agent_type\": \"prometheus\",
+  \"device_id\": $NAS_ID,
+  \"checkin_schedule\": \"every 15s\",
+  \"config\": \"--web.listen-address=:9100\\n--collector.filesystem\\n--collector.diskstats\\n--collector.zfs\",
+  \"disk_path\": \"/usr/local/bin/node_exporter\",
+  \"status\": \"active\",
+  \"version\": \"1.7.0\"
+}" > /dev/null
+success "Agent: Prometheus on NAS"
+
+post "$P/agents" "{
+  \"name\": \"Filebeat\",
+  \"agent_type\": \"elk\",
+  \"device_id\": $PIHOLE_ID,
+  \"checkin_schedule\": \"every 10s\",
+  \"config\": \"filebeat.inputs:\\n  - type: log\\n    paths:\\n      - /var/log/pihole.log\\noutput.elasticsearch:\\n  hosts: [\\\"10.0.2.50:9200\\\"]\",
+  \"disk_path\": \"/etc/filebeat\",
+  \"status\": \"active\",
+  \"version\": \"8.12.1\"
+}" > /dev/null
+success "Agent: Filebeat on Pi-hole"
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 header "Done!"
@@ -469,6 +573,8 @@ echo "    • 11 connections"
 echo "    • 3 credentials"
 echo "    • Device ports for key servers"
 echo "    • 3 highlight rules"
+echo "    • 6 timeline entries"
+echo "    • 4 agents"
 echo "    • Auto-generated network diagram with annotation"
 echo
 echo "  Open the app and navigate to the 'Home Lab' project to explore."

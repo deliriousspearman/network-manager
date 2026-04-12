@@ -1,0 +1,1 @@
+ALTER TABLE command_outputs ADD COLUMN parse_output INTEGER NOT NULL DEFAULT 1;

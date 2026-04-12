@@ -1,5 +1,31 @@
 /** Shared input validation helpers for route handlers. */
 
+import db from './db/connection.js';
+
+/** Verify a device belongs to the given project. Returns true if valid. */
+export function verifyDeviceOwnership(deviceId: number | string, projectId: number): boolean {
+  const row = db.prepare('SELECT id FROM devices WHERE id = ? AND project_id = ?').get(deviceId, projectId);
+  return !!row;
+}
+
+/** Verify a subnet belongs to the given project. Returns true if valid. */
+export function verifySubnetOwnership(subnetId: number | string, projectId: number): boolean {
+  const row = db.prepare('SELECT id FROM subnets WHERE id = ? AND project_id = ?').get(subnetId, projectId);
+  return !!row;
+}
+
+/** Verify a command output belongs to the given project. Returns true if valid. */
+export function verifyCommandOutputOwnership(outputId: number | string, projectId: number): boolean {
+  const row = db.prepare('SELECT id FROM command_outputs WHERE id = ? AND project_id = ?').get(outputId, projectId);
+  return !!row;
+}
+
+/** Verify a router config belongs to the given project. Returns true if valid. */
+export function verifyRouterConfigOwnership(configId: number | string, projectId: number): boolean {
+  const row = db.prepare('SELECT id FROM router_configs WHERE id = ? AND project_id = ?').get(configId, projectId);
+  return !!row;
+}
+
 export class ValidationError extends Error {
   constructor(message: string) {
     super(message);

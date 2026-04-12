@@ -1,4 +1,5 @@
-import React from 'react';
+import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import type { HostingType } from 'shared/types';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
@@ -6,18 +7,25 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchDevice, deleteDevice } from '../../api/devices';
 import { fetchCredentialsByDevice } from '../../api/credentials';
 import { useProject } from '../../contexts/ProjectContext';
+import { rowNavHandlers } from '../../utils/navigation';
 import CommandSection from '../commands/CommandSection';
+import RouterConfigSection from '../routerConfig/RouterConfigSection';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
+import CredentialForm from '../credentials/CredentialForm';
 import ImageGallerySection from './ImageGallerySection';
 import DeviceNotesSection from './DeviceNotesSection';
 import DevicePortsSection from './DevicePortsSection';
 import DeviceAttachmentsSection from './DeviceAttachmentsSection';
 import LoadingSpinner from '../ui/LoadingSpinner';
-
-const DEFAULT_SECTION_ORDER = ['overview', 'credentials', 'ports', 'notes', 'gallery', 'attachments', 'command_outputs'];
+import Tabs, { type TabDef } from '../ui/Tabs';
+import PageHeader from '../layout/PageHeader';
+import { Pencil, FileText, Cable, Paperclip, Image, Terminal, Router, KeyRound, Info } from 'lucide-react';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export default function DeviceDetail() {
   const confirm = useConfirmDialog();
+  const toast = useToast();
   const { id } = useParams();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -41,7 +49,10 @@ export default function DeviceDetail() {
       queryClient.invalidateQueries({ queryKey: ['devices', projectId] });
       navigate(`${base}/devices`);
     },
+    onError: () => toast('Failed to delete device', 'error'),
   });
+
+  const [credFormModal, setCredFormModal] = useState<{ open: boolean; editId?: number }>({ open: false });
 
   if (isLoading) return <LoadingSpinner />;
   if (!device) return <div className="empty-state">Device not found</div>;
@@ -51,62 +62,29 @@ export default function DeviceDetail() {
     catch { return {}; }
   })();
   const show = (key: string) => sectionCfg[key] !== false;
-  const storedOrder: string[] = sectionCfg.order?.length ? sectionCfg.order : DEFAULT_SECTION_ORDER;
-  const order: string[] = [
-    ...DEFAULT_SECTION_ORDER.filter(k => !storedOrder.includes(k)),
-    ...storedOrder,
-  ];
 
-  const credentialsSection = show('credentials') && (
-    <div className="card">
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-        <h3 style={{ fontSize: '1rem', margin: 0 }}>Credentials</h3>
-        <Link to={`${base}/credentials/new`} className="btn btn-secondary btn-sm">+ Add Credential</Link>
-      </div>
-      {!credentials?.length ? (
-        <p style={{ fontSize: '0.9rem', color: 'var(--color-text-secondary)' }}>No credentials linked to this device.</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Host</th>
-              <th>Username</th>
-              <th>Password</th>
-              <th>Type</th>
-              <th>Source</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {credentials.map(c => (
-              <tr key={c.id}>
-                <td>{c.host || '—'}</td>
-                <td>{c.username}</td>
-                <td>{c.password || '—'}</td>
-                <td>{c.type || '—'}</td>
-                <td>{c.source || '—'}</td>
-                <td className="actions">
-                  <Link to={`${base}/credentials/${c.id}/edit`} className="btn btn-secondary btn-sm">Edit</Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-    </div>
-  );
-
-  const overviewSection = show('overview') && (
-    <div className="card">
-      <h3 style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Overview</h3>
+  const summaryCard = (
+    <div className="card device-summary-card">
       <div className="detail-grid">
         <div className="detail-item">
           <label>Type</label>
           <p><span className={`badge badge-${device.type}`}>{DEVICE_TYPE_LABELS[device.type] || device.type}</span></p>
         </div>
         <div className="detail-item">
+          <label>Status</label>
+          <p>{device.status ? <span className={`badge badge-status-${device.status}`}>{device.status.charAt(0).toUpperCase() + device.status.slice(1)}</span> : '—'}</p>
+        </div>
+        <div className="detail-item">
           <label>OS</label>
           <p>{device.os || '—'}</p>
+        </div>
+        <div className="detail-item">
+          <label>Hostname</label>
+          <p>{device.hostname || '—'}</p>
+        </div>
+        <div className="detail-item">
+          <label>Domain</label>
+          <p>{device.domain || '—'}</p>
         </div>
         <div className="detail-item">
           <label>MAC Address</label>
@@ -133,26 +111,15 @@ export default function DeviceDetail() {
           </div>
         )}
         <div className="detail-item">
-          <label>Status</label>
-          <p>{device.status ? <span className={`badge badge-status-${device.status}`}>{device.status.charAt(0).toUpperCase() + device.status.slice(1)}</span> : '—'}</p>
-        </div>
-        <div className="detail-item">
           <label>AV</label>
-          <p>{device.av ? `🛡️ ${device.av}` : '—'}</p>
+          <p>{device.av || '—'}</p>
         </div>
       </div>
 
-      {device.notes && (
-        <div style={{ marginTop: '1rem' }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Notes</label>
-          <p style={{ fontSize: '0.9rem', whiteSpace: 'pre-wrap' }}>{device.notes}</p>
-        </div>
-      )}
-
       {device.tags?.length > 0 && (
-        <div style={{ marginTop: '1rem' }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>Tags</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.4rem' }}>
+        <div className="detail-extra">
+          <label>Tags</label>
+          <div className="tag-row">
             {device.tags.map(tag => (
               <span key={tag} className="tag-pill">{tag}</span>
             ))}
@@ -161,12 +128,13 @@ export default function DeviceDetail() {
       )}
 
       {device.ips?.length > 0 && (
-        <div style={{ marginTop: '1rem' }}>
-          <label style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)', textTransform: 'uppercase' }}>IP Addresses</label>
+        <div className="detail-extra">
+          <label>IP Addresses</label>
           <ul className="ip-list">
             {device.ips.map(ip => (
               <li key={ip.id} className={ip.is_primary ? 'ip-primary' : ''}>
                 {ip.ip_address} {ip.label ? `(${ip.label})` : ''} {ip.is_primary ? '★' : ''}
+                {ip.dhcp ? <span className="badge badge-dhcp" title="Address assigned by DHCP — may change">DHCP</span> : null}
               </li>
             ))}
           </ul>
@@ -175,58 +143,137 @@ export default function DeviceDetail() {
     </div>
   );
 
-  const sectionMap: Record<string, React.ReactNode> = {
-    overview: overviewSection,
-    credentials: credentialsSection,
-    gallery: show('gallery') && <ImageGallerySection deviceId={deviceId} />,
-    attachments: show('attachments') && <DeviceAttachmentsSection deviceId={deviceId} />,
-    ports: show('ports') && <DevicePortsSection deviceId={deviceId} />,
-    notes: show('notes') && <DeviceNotesSection deviceId={deviceId} initialHtml={device.rich_notes ?? null} />,
-    command_outputs: device.type === 'server' && show('command_outputs') && <CommandSection deviceId={device.id} />,
-  };
-
-  return (
-    <div>
-      <div className="page-header">
-        <h2>{device.name}</h2>
-        <div className="actions">
-          <Link to={`${base}/devices/${device.id}/edit`} className="btn btn-secondary">Edit</Link>
-          <button
-            className="btn btn-danger"
-            onClick={async () => { if (await confirm('Delete this device?')) deleteMut.mutate(device.id); }}
-          >Delete</button>
-        </div>
+  const credentialsPanel = (
+    <div className="card">
+      <div className="card-header">
+        <h3 className="card-header-title">Credentials</h3>
+        <button className="btn btn-outline btn-sm" onClick={() => setCredFormModal({ open: true })}>+ Add Credential</button>
       </div>
-
-      {device.hosting_type === 'hypervisor' && device.vms && device.vms.length > 0 && (
-        <div className="card">
-          <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}>Virtual Machines</h3>
+      {!credentials?.length ? (
+        <p className="muted">No credentials linked to this device.</p>
+      ) : (
+        <div className="table-container">
           <table>
             <thead>
               <tr>
-                <th>Name</th>
+                <th>Host</th>
+                <th>Username</th>
+                <th>Password</th>
                 <th>Type</th>
-                <th>IP Address</th>
-                <th>OS</th>
+                <th>Source</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {device.vms.map(vm => (
-                <tr key={vm.id} style={{ cursor: 'pointer' }} onClick={() => navigate(`${base}/devices/${vm.id}`)}>
-                  <td>{vm.name}</td>
-                  <td><span className={`badge badge-${vm.type}`}>{DEVICE_TYPE_LABELS[vm.type as keyof typeof DEVICE_TYPE_LABELS] || vm.type}</span></td>
-                  <td>{vm.primary_ip || '—'}</td>
-                  <td>{vm.os || '—'}</td>
+              {credentials.map(c => (
+                <tr key={c.id}>
+                  <td>{c.host || '—'}</td>
+                  <td>{c.username}</td>
+                  <td>{c.password || '—'}</td>
+                  <td>{c.type || '—'}</td>
+                  <td>{c.source || '—'}</td>
+                  <td className="actions">
+                    <button className="btn btn-outline btn-sm" onClick={() => setCredFormModal({ open: true, editId: c.id })} title="Edit"><Pencil size={14} /></button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      {credFormModal.open && createPortal(
+        <div className="confirm-overlay" onClick={() => setCredFormModal({ open: false })}>
+          <CredentialModal editId={credFormModal.editId} deviceId={device.id} onClose={() => setCredFormModal({ open: false })} />
+        </div>,
+        document.body
+      )}
+    </div>
+  );
 
-      {order.map(key => (
-        <React.Fragment key={key}>{sectionMap[key]}</React.Fragment>
-      ))}
+  const tabs: TabDef[] = [
+    { id: 'overview', label: 'Overview', icon: <Info size={14} /> },
+    { id: 'notes', label: 'Notes', icon: <FileText size={14} />, hidden: !show('notes') },
+    { id: 'ports', label: 'Ports', icon: <Cable size={14} />, hidden: !show('ports') },
+    { id: 'credentials', label: 'Credentials', icon: <KeyRound size={14} />, hidden: !show('credentials'), count: credentials?.length },
+    { id: 'attachments', label: 'Attachments', icon: <Paperclip size={14} />, hidden: !show('attachments') },
+    { id: 'gallery', label: 'Images', icon: <Image size={14} />, hidden: !show('gallery') },
+    { id: 'router_config', label: 'Router Config', icon: <Router size={14} />, hidden: device.type !== 'router' || !show('router_config') },
+    { id: 'command_outputs', label: 'Command Outputs', icon: <Terminal size={14} />, hidden: !show('command_outputs') },
+  ];
+
+  const renderTab = (id: string) => {
+    switch (id) {
+      case 'overview':
+        return device.notes ? (
+          <div className="card">
+            <div className="card-header"><h3 className="card-header-title">Notes</h3></div>
+            <p className="notes-plain">{device.notes}</p>
+          </div>
+        ) : (
+          <div className="empty-state">
+            <div>No additional overview information.</div>
+          </div>
+        );
+      case 'notes': return <DeviceNotesSection deviceId={deviceId} initialHtml={device.rich_notes ?? null} />;
+      case 'ports': return <DevicePortsSection deviceId={deviceId} />;
+      case 'credentials': return credentialsPanel;
+      case 'attachments': return <DeviceAttachmentsSection deviceId={deviceId} />;
+      case 'gallery': return <ImageGallerySection deviceId={deviceId} />;
+      case 'router_config': return <RouterConfigSection deviceId={device.id} />;
+      case 'command_outputs': return <CommandSection deviceId={device.id} />;
+      default: return null;
+    }
+  };
+
+  return (
+    <div>
+      <PageHeader
+        title={device.name}
+        subtitle={DEVICE_TYPE_LABELS[device.type] || device.type}
+        actions={
+          <>
+            <Link to={`${base}/devices/${device.id}/edit`} className="btn btn-secondary">Edit</Link>
+            <button
+              className="btn btn-danger"
+              onClick={async () => { if (await confirm('Delete this device?')) deleteMut.mutate(device.id); }}
+            >Delete</button>
+          </>
+        }
+      />
+
+      {summaryCard}
+
+      {device.hosting_type === 'hypervisor' && device.vms && device.vms.length > 0 && (
+        <div className="card">
+          <div className="card-header"><h3 className="card-header-title">Virtual Machines</h3></div>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>IP Address</th>
+                  <th>OS</th>
+                </tr>
+              </thead>
+              <tbody>
+                {device.vms.map(vm => (
+                  <tr key={vm.id} style={{ cursor: 'pointer' }} {...rowNavHandlers(`${base}/devices/${vm.id}`, navigate)}>
+                    <td>{vm.name}</td>
+                    <td><span className={`badge badge-${vm.type}`}>{DEVICE_TYPE_LABELS[vm.type as keyof typeof DEVICE_TYPE_LABELS] || vm.type}</span></td>
+                    <td>{vm.primary_ip || '—'}</td>
+                    <td>{vm.os || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      <Tabs tabs={tabs} hashPersist>
+        {renderTab}
+      </Tabs>
     </div>
   );
 }
@@ -239,4 +286,17 @@ const HOSTING_LABELS: Record<HostingType, string> = {
 
 function formatHostingType(ht: HostingType): string {
   return HOSTING_LABELS[ht] || ht;
+}
+
+function CredentialModal({ editId, deviceId, onClose }: { editId?: number; deviceId: number; onClose: () => void }) {
+  const trapRef = useFocusTrap<HTMLDivElement>();
+  return (
+    <div className="confirm-dialog" ref={trapRef} style={{ maxWidth: 500, width: '90vw' }} onClick={e => e.stopPropagation()}>
+      <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>{editId ? 'Edit Credential' : 'New Credential'}</span>
+        <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
+      </div>
+      <CredentialForm editId={editId} defaultDeviceId={deviceId} onClose={onClose} />
+    </div>
+  );
 }

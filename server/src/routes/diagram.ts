@@ -61,33 +61,37 @@ router.get('/', (req, res) => {
   const projectId = res.locals.projectId;
   const viewId = getViewId(projectId, req.query.view_id as string | undefined);
 
-  const devices = db.prepare(
+  // Single-query fetch: each device row carries its ips and agents as JSON
+  // arrays, collapsing the previous three-query + in-memory join.
+  const deviceRows = db.prepare(
     `SELECT d.id, d.name, d.type, d.os, d.subnet_id, d.hosting_type,
-            d.mac_address, d.location, d.notes, d.status, dp.x, dp.y,
+            d.mac_address, d.location, d.notes, d.status, d.av, dp.x, dp.y,
       (SELECT ip_address FROM device_ips WHERE device_id = d.id AND is_primary = 1 LIMIT 1) as primary_ip,
-      (SELECT COUNT(*) FROM credentials WHERE device_id = d.id) > 0 as has_credentials
+      (SELECT COUNT(*) FROM credentials WHERE device_id = d.id) > 0 as has_credentials,
+      (SELECT COUNT(*) FROM credentials WHERE device_id = d.id AND used = 1) > 0 as any_credential_used,
+      COALESCE(
+        (SELECT json_group_array(json_object('ip_address', ip_address, 'label', label, 'is_primary', is_primary, 'dhcp', dhcp))
+         FROM device_ips WHERE device_id = d.id),
+        '[]'
+      ) AS ips_json,
+      COALESCE(
+        (SELECT json_group_array(json_object('id', id, 'name', name, 'agent_type', agent_type))
+         FROM (SELECT id, name, agent_type FROM agents WHERE device_id = d.id AND project_id = ? ORDER BY id)),
+        '[]'
+      ) AS agents_json
      FROM devices d
      INNER JOIN diagram_positions dp ON d.id = dp.device_id AND dp.view_id = ?
      WHERE d.project_id = ?`
-  ).all(viewId, projectId) as any[];
+  ).all(projectId, viewId, projectId) as Array<Record<string, unknown> & { ips_json: string; agents_json: string }>;
 
-  const allIps = db.prepare(
-    `SELECT di.device_id, di.ip_address, di.label, di.is_primary
-     FROM device_ips di
-     INNER JOIN diagram_positions dp ON di.device_id = dp.device_id AND dp.view_id = ?
-     INNER JOIN devices d ON di.device_id = d.id
-     WHERE d.project_id = ?`
-  ).all(viewId, projectId) as any[];
-
-  const ipsByDevice = new Map<number, any[]>();
-  for (const ip of allIps) {
-    if (!ipsByDevice.has(ip.device_id)) ipsByDevice.set(ip.device_id, []);
-    ipsByDevice.get(ip.device_id)!.push({ ip_address: ip.ip_address, label: ip.label, is_primary: ip.is_primary });
-  }
-
-  for (const d of devices) {
-    d.ips = ipsByDevice.get(d.id) || [];
-  }
+  const devices = deviceRows.map(row => {
+    const { ips_json, agents_json, ...rest } = row;
+    return {
+      ...rest,
+      ips: JSON.parse(ips_json),
+      agents: JSON.parse(agents_json),
+    };
+  });
 
   const subnets = db.prepare(
     `SELECT s.id, s.name, s.cidr, s.vlan_id, s.description, sp.x, sp.y, sp.width, sp.height
@@ -115,10 +119,18 @@ router.get('/', (req, res) => {
     try { node_preferences[row.node_id] = JSON.parse(row.prefs); } catch { /* skip bad json */ }
   }
 
+  const DEFAULT_LEGEND_ITEMS = [
+    { icon: '', label: 'Credentials (used)', builtinIcon: 'credential-used' },
+    { icon: '', label: 'Credentials (unused)', builtinIcon: 'credential-unused' },
+    { icon: '', label: 'Favourite device', builtinIcon: 'favourite' },
+    { icon: '🛡️', label: 'Antivirus installed', builtinIcon: 'av' },
+    { icon: '', label: 'Monitoring agent', builtinIcon: 'agent' },
+  ];
+
   const legendRow = db.prepare(
     'SELECT items FROM diagram_legend WHERE project_id = ?'
   ).get(projectId) as { items: string } | undefined;
-  let legend_items: any[] = [];
+  let legend_items: any[] = DEFAULT_LEGEND_ITEMS;
   if (legendRow) {
     try { legend_items = JSON.parse(legendRow.items); } catch { /* skip bad json */ }
   }
@@ -141,12 +153,18 @@ router.get('/', (req, res) => {
   ).all(projectId) as { device_type: string }[];
   const type_default_icons = typeDefaultRows.map(r => r.device_type);
 
+  // Agent type default icons: list agent types that have project-level custom defaults
+  const agentTypeDefaultRows = db.prepare(
+    'SELECT agent_type FROM agent_type_icons WHERE project_id = ?'
+  ).all(projectId) as { agent_type: string }[];
+  const agent_type_default_icons = agentTypeDefaultRows.map(r => r.agent_type);
+
   // Standalone diagram images (metadata only, no blob)
   const diagram_images = db.prepare(
     'SELECT id, project_id, x, y, width, height, filename, mime_type, label, view_id, created_at FROM diagram_images WHERE project_id = ? AND (view_id = ? OR view_id IS NULL) ORDER BY created_at'
   ).all(projectId, viewId);
 
-  res.json({ devices, subnets, connections, subnet_memberships, node_preferences, legend_items, annotations, views, current_view_id: viewId, device_icon_overrides, type_default_icons, diagram_images });
+  res.json({ devices, subnets, connections, subnet_memberships, node_preferences, legend_items, annotations, views, current_view_id: viewId, device_icon_overrides, type_default_icons, agent_type_default_icons, diagram_images });
 });
 
 const upsertDevicePos = db.prepare(
@@ -436,8 +454,13 @@ const autoGenerate = db.transaction((projectId: number, viewId: number) => {
 router.post('/auto-generate', (req, res) => {
   const projectId = res.locals.projectId;
   const viewId = getViewId(projectId, req.body.view_id ?? req.query.view_id);
-  autoGenerate(projectId, viewId);
-  res.json({ success: true });
+  try {
+    autoGenerate(projectId, viewId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Auto-generate failed:', err);
+    res.status(500).json({ error: 'Auto-generate layout failed' });
+  }
 });
 
 // Diagram layout export (name-keyed JSON for sharing across projects)
@@ -539,6 +562,7 @@ router.post('/import', (req, res) => {
   const unmatchedDevices: string[] = [];
   const matchedSubnets: string[] = [];
   const unmatchedSubnets: string[] = [];
+  const skippedConnections: string[] = [];
 
   try {
     db.transaction(() => {
@@ -587,8 +611,9 @@ router.post('/import', (req, res) => {
         const tgtDevId = c.targetDevice ? (deviceByName.get(c.targetDevice) ?? null) : null;
         const srcSubId = c.sourceSubnet ? (subnetByName.get(c.sourceSubnet) ?? null) : null;
         const tgtSubId = c.targetSubnet ? (subnetByName.get(c.targetSubnet) ?? null) : null;
-        if (srcDevId == null && srcSubId == null) continue;
-        if (tgtDevId == null && tgtSubId == null) continue;
+        // Require both source and target to resolve to a known device or subnet
+        if (srcDevId == null && srcSubId == null) { skippedConnections.push(`${c.sourceDevice ?? c.sourceSubnet ?? '?'} -> ${c.targetDevice ?? c.targetSubnet ?? '?'}`); continue; }
+        if (tgtDevId == null && tgtSubId == null) { skippedConnections.push(`${c.sourceDevice ?? c.sourceSubnet ?? '?'} -> ${c.targetDevice ?? c.targetSubnet ?? '?'}`); continue; }
         connInsert.run(srcDevId, tgtDevId, srcSubId, tgtSubId, c.label ?? null, c.connectionType ?? null, c.edgeType ?? null, c.edgeColor ?? null, c.edgeWidth ?? null, c.labelColor ?? null, c.labelBgColor ?? null, c.sourcePort ?? null, c.targetPort ?? null, projectId);
       }
 
@@ -610,7 +635,7 @@ router.post('/import', (req, res) => {
       }
     })();
 
-    res.json({ matchedDevices: matchedDevices.length, unmatchedDevices, matchedSubnets: matchedSubnets.length, unmatchedSubnets });
+    res.json({ matchedDevices: matchedDevices.length, unmatchedDevices, matchedSubnets: matchedSubnets.length, unmatchedSubnets, skippedConnections });
   } catch (err) {
     console.error('Diagram import error:', err);
     res.status(500).json({ error: 'Import failed' });

@@ -1,5 +1,6 @@
 import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { Search } from 'lucide-react';
 import { fetchActivityLogsPaged } from '../../api/activityLogs';
 import { fetchSettings } from '../../api/settings';
 import { useProject } from '../../contexts/ProjectContext';
@@ -74,6 +75,7 @@ export default function LogsPage() {
   const { projectId } = useProject();
   const [filterResource, setFilterResource] = useState('');
   const [filterAction, setFilterAction] = useState('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
   const handleFilterResource = useCallback((value: string) => {
@@ -86,10 +88,16 @@ export default function LogsPage() {
     setPage(1);
   }, []);
 
+  const handleSearch = useCallback((value: string) => {
+    setSearch(value);
+    setPage(1);
+  }, []);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['activity-logs', projectId, 'paged', page, PAGE_LIMIT, filterResource, filterAction],
-    queryFn: () => fetchActivityLogsPaged(projectId, { page, limit: PAGE_LIMIT, resource_type: filterResource, action: filterAction }),
+    queryKey: ['activity-logs', projectId, 'paged', page, PAGE_LIMIT, search, filterResource, filterAction],
+    queryFn: () => fetchActivityLogsPaged(projectId, { page, limit: PAGE_LIMIT, search, resource_type: filterResource, action: filterAction }),
     staleTime: 10_000,
+    placeholderData: keepPreviousData,
   });
 
   const { data: settings } = useQuery({
@@ -119,6 +127,15 @@ export default function LogsPage() {
       <div className="page-header">
         <h2>Activity Log</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div className="diagram-search-wrap">
+            <Search size={14} className="diagram-search-icon" />
+            <input
+              className="diagram-search"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search"
+            />
+          </div>
           <select value={filterResource} onChange={e => handleFilterResource(e.target.value)} style={selectStyle}>
             <option value="">All resources</option>
             {Object.entries(RESOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
@@ -139,7 +156,6 @@ export default function LogsPage() {
               <thead>
                 <tr>
                   <th>Timestamp</th>
-                  <th>Project</th>
                   <th>Resource</th>
                   <th>Action</th>
                   <th>Name</th>
@@ -151,9 +167,6 @@ export default function LogsPage() {
                   <tr key={log.id}>
                     <td style={{ whiteSpace: 'nowrap', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
                       {formatTimestamp(log.created_at, timezone)}
-                    </td>
-                    <td style={{ fontSize: '0.85rem' }}>
-                      {log.project_name ?? '—'}
                     </td>
                     <td>
                       {log.project_id === null ? (

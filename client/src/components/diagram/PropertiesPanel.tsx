@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { X, Star, RotateCcw, Pipette } from 'lucide-react';
+import { X, Star } from 'lucide-react';
 import type { NodePrefs } from 'shared/types';
-import { getStorage, setStorage } from '../../utils/storage';
+import { ColourPicker } from '../ui/ColourPicker';
+import { usePopupClose } from '../../hooks/usePopupClose';
 
 export interface SelectedElement {
   type: 'device' | 'subnet' | 'edge';
@@ -17,6 +18,7 @@ interface Props {
   onPrefChange: (key: keyof NodePrefs, value: any) => void;
   onConnectionUpdate?: (connId: number, data: { label?: string | null; connection_type?: string; edge_type?: string; edge_color?: string | null; edge_width?: number | null; label_color?: string | null; label_bg_color?: string | null; source_handle?: string | null; target_handle?: string | null; source_port?: string | null; target_port?: string | null }) => void;
   projectBase?: string;
+  locked?: boolean;
 }
 
 
@@ -44,123 +46,16 @@ const DEVICE_ICONS = [
   '🖨', '📡', '💾', '🔧', '🏠', '🔑', '⚡', '🎯',
 ];
 
-const COLOUR_HISTORY_KEY = 'colour-picker-history';
-const MAX_COLOUR_HISTORY = 8;
-
-function getColourHistory(): string[] {
-  try { return JSON.parse(getStorage(COLOUR_HISTORY_KEY, '[]')); }
-  catch { return []; }
-}
-
-function usePopupClose(open: boolean, ref: React.RefObject<HTMLDivElement | null>, onClose: () => void) {
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [open, ref, onClose]);
-}
-
-function ColourPicker({
-  label, value, onChange,
-}: { label: string; value?: string; onChange: (c: string | null) => void }) {
-  const [open, setOpen] = useState(false);
-  const [hexInput, setHexInput] = useState(value || '');
-  const [pickerValue, setPickerValue] = useState(value || '#000000');
-  const [history, setHistory] = useState<string[]>(getColourHistory);
-  const ref = useRef<HTMLDivElement>(null);
-  usePopupClose(open, ref, () => setOpen(false));
-
-  useEffect(() => { setHexInput(value || ''); }, [value]);
-  useEffect(() => { if (value) setPickerValue(value); }, [value]);
-
-  const applyColour = (colour: string) => {
-    onChange(colour);
-    setHexInput(colour);
-    setPickerValue(colour);
-  };
-
-  const commitToHistory = (colour: string) => {
-    const updated = [colour, ...getColourHistory().filter(c => c !== colour)].slice(0, MAX_COLOUR_HISTORY);
-    setStorage(COLOUR_HISTORY_KEY, JSON.stringify(updated));
-    setHistory(updated);
-  };
-
-  const handleHexChange = (raw: string) => {
-    const input = raw.startsWith('#') ? raw : `#${raw}`;
-    setHexInput(input);
-    if (/^#[0-9a-fA-F]{6}$/.test(input)) { applyColour(input); commitToHistory(input); }
-  };
-
-  return (
-    <div className="appearance-picker-row" ref={ref}>
-      <span className="props-label">{label}</span>
-      <button
-        className={`appearance-trigger colour-trigger${value ? ' has-colour' : ''}`}
-        onClick={() => setOpen(o => !o)}
-        title={value || 'No colour set'}
-        style={value ? { backgroundColor: value, borderColor: value } : {}}
-      >
-        <Pipette size={13} />
-      </button>
-      {open && (
-        <div className="appearance-popup colour-picker-popup">
-          <div className="colour-picker-top-row">
-            {history.map(c => (
-              <button
-                key={c}
-                className={`colour-swatch${value === c ? ' active' : ''}`}
-                style={{ backgroundColor: c }}
-                onClick={() => { applyColour(c); commitToHistory(c); }}
-                title={c}
-              />
-            ))}
-            <input
-              type="color"
-              className="colour-picker-native-input"
-              value={pickerValue}
-              onChange={e => applyColour(e.target.value)}
-              onBlur={() => commitToHistory(pickerValue)}
-            />
-          </div>
-          <div className="colour-picker-hex-row">
-            <input
-              type="text"
-              className="colour-picker-hex-input"
-              value={hexInput}
-              onChange={e => handleHexChange(e.target.value)}
-              placeholder="#rrggbb"
-              maxLength={7}
-              spellCheck={false}
-            />
-            {value && (
-              <button
-                className="colour-swatch reset"
-                onClick={() => { onChange(null); setHexInput(''); setOpen(false); }}
-                title="Clear"
-              >
-                <RotateCcw size={11} />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function IconPicker({
-  value, onChange,
-}: { value?: string; onChange: (icon: string | null) => void }) {
+  value, onChange, disabled = false,
+}: { value?: string; onChange: (icon: string | null) => void; disabled?: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   usePopupClose(open, ref, () => setOpen(false));
   return (
     <div className="appearance-picker-row" ref={ref}>
       <span className="props-label">Icon</span>
-      <button className="appearance-trigger" onClick={() => setOpen(o => !o)} title="Change icon">
+      <button className="appearance-trigger" onClick={() => setOpen(o => !o)} disabled={disabled} title="Change icon">
         {value ? <span>{value}</span> : <span className="appearance-trigger-none">—</span>}
       </button>
       {open && (
@@ -170,6 +65,7 @@ function IconPicker({
               key={icon}
               className={`appearance-icon-option${value === icon ? ' active' : ''}`}
               onClick={() => { onChange(value === icon ? null : icon); setOpen(false); }}
+              disabled={disabled}
               title={icon}
             >
               {icon}
@@ -182,13 +78,14 @@ function IconPicker({
 }
 
 function OptionPicker({
-  label, value, options, defaultValue, onChange,
+  label, value, options, defaultValue, onChange, disabled = false,
 }: {
   label: string;
   value?: string;
   options: { value: string; label: string }[];
   defaultValue: string;
   onChange: (v: string | null) => void;
+  disabled?: boolean;
 }) {
   return (
     <div className="appearance-picker-row">
@@ -199,6 +96,7 @@ function OptionPicker({
           const val = e.target.value;
           onChange(val === defaultValue ? null : val);
         }}
+        disabled={disabled}
         style={{ fontSize: '0.82rem', maxWidth: '120px' }}
       >
         {options.map(o => (
@@ -210,33 +108,37 @@ function OptionPicker({
 }
 
 function AppearanceSection({
-  nodeId: _nodeId, nodePrefs, onPrefChange, isDevice,
+  nodeId: _nodeId, nodePrefs, onPrefChange, isDevice, disabled = false,
 }: {
   nodeId: string;
   nodePrefs: NodePrefs;
   onPrefChange: (key: keyof NodePrefs, value: any) => void;
   isDevice: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div className="props-section">
       <div className="props-label props-section-title">Appearance</div>
       {isDevice && (
-        <IconPicker value={nodePrefs.icon} onChange={v => onPrefChange('icon', v)} />
+        <IconPicker value={nodePrefs.icon} onChange={v => onPrefChange('icon', v)} disabled={disabled} />
       )}
       <ColourPicker
         label="Border Colour"
         value={nodePrefs.borderColor}
         onChange={v => onPrefChange('borderColor', v)}
+        disabled={disabled}
       />
       <ColourPicker
         label="Background"
         value={nodePrefs.bgColor}
         onChange={v => onPrefChange('bgColor', v)}
+        disabled={disabled}
       />
       <ColourPicker
         label="Label Colour"
         value={nodePrefs.labelColor}
         onChange={v => onPrefChange('labelColor', v)}
+        disabled={disabled}
       />
       {!isDevice && (
         <>
@@ -246,6 +148,7 @@ function AppearanceSection({
             options={BORDER_STYLE_OPTIONS}
             defaultValue="dashed"
             onChange={v => onPrefChange('borderStyle', v)}
+            disabled={disabled}
           />
           <OptionPicker
             label="Corner Style"
@@ -253,6 +156,7 @@ function AppearanceSection({
             options={BORDER_RADIUS_OPTIONS}
             defaultValue="rounded"
             onChange={v => onPrefChange('borderRadius', v)}
+            disabled={disabled}
           />
           <OptionPicker
             label="Border Width"
@@ -260,6 +164,7 @@ function AppearanceSection({
             options={BORDER_WIDTH_OPTIONS}
             defaultValue="normal"
             onChange={v => onPrefChange('borderWidth', v)}
+            disabled={disabled}
           />
         </>
       )}
@@ -267,7 +172,7 @@ function AppearanceSection({
   );
 }
 
-function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase }: { data: any; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: any) => void; projectBase?: string }) {
+function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled = false }: { data: any; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: any) => void; projectBase?: string; disabled?: boolean }) {
   return (
     <>
       <div className="props-section">
@@ -288,6 +193,7 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase }: { data
                 {ip.ip_address}
                 {ip.label && <span className="props-muted"> ({ip.label})</span>}
                 {ip.is_primary ? <span className="props-muted"> (primary)</span> : null}
+                {ip.dhcp ? <span className="badge badge-dhcp" title="Address assigned by DHCP — may change">DHCP</span> : null}
               </li>
             ))}
           </ul>
@@ -322,10 +228,10 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase }: { data
         </div>
       )}
 
-      <AppearanceSection nodeId={data.deviceId} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={true} />
+      <AppearanceSection nodeId={data.deviceId} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={true} disabled={disabled} />
 
       <div className="props-section">
-        <Link to={`${projectBase || ''}/devices/${data.deviceId}`} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center', fontSize: '1rem', lineHeight: 1.5 }}>
+        <Link to={`${projectBase || ''}/devices/${data.deviceId}`} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center', fontSize: '1rem', lineHeight: 1.1 }}>
           View Full Details
         </Link>
       </div>
@@ -333,7 +239,7 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase }: { data
   );
 }
 
-function SubnetProperties({ data, nodePrefs, onPrefChange }: { data: any; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: any) => void }) {
+function SubnetProperties({ data, nodePrefs, onPrefChange, projectBase, disabled = false }: { data: any; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: any) => void; projectBase?: string; disabled?: boolean }) {
   return (
     <>
       <div className="props-section">
@@ -355,7 +261,15 @@ function SubnetProperties({ data, nodePrefs, onPrefChange }: { data: any; nodePr
         </div>
       )}
 
-      <AppearanceSection nodeId={data.id} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={false} />
+      <AppearanceSection nodeId={data.id} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={false} disabled={disabled} />
+
+      {data.subnetId != null && (
+        <div className="props-section">
+          <Link to={`${projectBase || ''}/subnets/${data.subnetId}`} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center', fontSize: '1rem', lineHeight: 1.1 }}>
+            View Full Details
+          </Link>
+        </div>
+      )}
     </>
   );
 }
@@ -383,7 +297,7 @@ const EDGE_WIDTH_OPTIONS = [
   { value: '6', label: 'Heavy' },
 ];
 
-function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionUpdate?: Props['onConnectionUpdate'] }) {
+function EdgeProperties({ data, onConnectionUpdate, disabled = false }: { data: any; onConnectionUpdate?: Props['onConnectionUpdate']; disabled?: boolean }) {
   const [label, setLabel] = useState(data.label || '');
   const [sourcePort, setSourcePort] = useState(data.sourcePort || '');
   const [targetPort, setTargetPort] = useState(data.targetPort || '');
@@ -442,6 +356,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
           value={sourcePort}
           onChange={e => handlePortChange('source_port', e.target.value)}
           placeholder="e.g. eth0, ge-0/0/1"
+          readOnly={disabled}
         />
       </div>
 
@@ -452,6 +367,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
           value={targetPort}
           onChange={e => handlePortChange('target_port', e.target.value)}
           placeholder="e.g. eth1, ge-0/0/2"
+          readOnly={disabled}
         />
       </div>
 
@@ -460,6 +376,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
         <select
           value={data.connectionType || 'solid'}
           onChange={e => handleTypeChange(e.target.value)}
+          disabled={disabled}
         >
           {LINE_STYLE_TYPES.map(t => (
             <option key={t.value} value={t.value}>{t.label}</option>
@@ -472,6 +389,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
         <select
           value={data.edgeType || 'default'}
           onChange={e => handleEdgeTypeChange(e.target.value)}
+          disabled={disabled}
         >
           {EDGE_LINE_TYPES.map(t => (
             <option key={t.value} value={t.value}>{t.label}</option>
@@ -483,6 +401,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
         label="Line Colour"
         value={data.edgeColor || undefined}
         onChange={v => { if (data.connId && onConnectionUpdate) onConnectionUpdate(data.connId, { edge_color: v }); }}
+        disabled={disabled}
       />
 
       <OptionPicker
@@ -491,6 +410,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
         options={EDGE_WIDTH_OPTIONS}
         defaultValue="2"
         onChange={v => { if (data.connId && onConnectionUpdate) onConnectionUpdate(data.connId, { edge_width: v ? parseInt(v) : null }); }}
+        disabled={disabled}
       />
 
       <div className="props-section">
@@ -500,6 +420,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
           value={label}
           onChange={e => handleLabelChange(e.target.value)}
           placeholder="Optional label..."
+          readOnly={disabled}
         />
       </div>
 
@@ -507,12 +428,14 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
         label="Label Text Colour"
         value={data.labelColor || undefined}
         onChange={v => { if (data.connId && onConnectionUpdate) onConnectionUpdate(data.connId, { label_color: v }); }}
+        disabled={disabled}
       />
 
       <ColourPicker
         label="Label Background"
         value={data.labelBgColor || undefined}
         onChange={v => { if (data.connId && onConnectionUpdate) onConnectionUpdate(data.connId, { label_bg_color: v }); }}
+        disabled={disabled}
       />
 
       {data.createdAt && (
@@ -525,7 +448,7 @@ function EdgeProperties({ data, onConnectionUpdate }: { data: any; onConnectionU
   );
 }
 
-export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefChange, onConnectionUpdate, projectBase }: Props) {
+export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefChange, onConnectionUpdate, projectBase, locked = false }: Props) {
   const title = selected.type === 'device'
     ? selected.data.label
     : selected.type === 'subnet'
@@ -544,6 +467,7 @@ export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefCh
             <button
               className={`properties-panel-icon-btn${isFavourite ? ' favourite-active' : ''}`}
               onClick={() => onPrefChange('favourite', !isFavourite)}
+              disabled={locked}
               title={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
             >
               <Star size={16} fill={isFavourite ? 'currentColor' : 'none'} />
@@ -561,12 +485,13 @@ export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefCh
             nodePrefs={nodePrefs}
             onPrefChange={onPrefChange}
             projectBase={projectBase}
+            disabled={locked}
           />
         )}
         {selected.type === 'subnet' && (
-          <SubnetProperties data={selected.data} nodePrefs={nodePrefs} onPrefChange={onPrefChange} />
+          <SubnetProperties data={selected.data} nodePrefs={nodePrefs} onPrefChange={onPrefChange} projectBase={projectBase} disabled={locked} />
         )}
-        {selected.type === 'edge' && <EdgeProperties data={selected.data} onConnectionUpdate={onConnectionUpdate} />}
+        {selected.type === 'edge' && <EdgeProperties data={selected.data} onConnectionUpdate={onConnectionUpdate} disabled={locked} />}
       </div>
     </div>
   );

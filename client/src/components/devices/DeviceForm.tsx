@@ -5,10 +5,12 @@ import { GripVertical } from 'lucide-react';
 import { fetchDevice, createDevice, updateDevice, fetchHypervisors } from '../../api/devices';
 import { fetchSubnets } from '../../api/subnets';
 import { useProject } from '../../contexts/ProjectContext';
+import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
 import type { DeviceType, HostingType } from 'shared/types';
 import { isValidIp } from '../../utils/validation';
+import { formErrorMessage } from '../../utils/formError';
 
-const DEFAULT_SECTION_ORDER = ['overview', 'credentials', 'ports', 'notes', 'gallery', 'attachments', 'command_outputs'];
+const DEFAULT_SECTION_ORDER = ['overview', 'credentials', 'ports', 'notes', 'gallery', 'attachments', 'command_outputs', 'router_config'];
 
 const SECTION_LABELS: Record<string, string> = {
   overview: 'Overview',
@@ -18,18 +20,21 @@ const SECTION_LABELS: Record<string, string> = {
   gallery: 'Image Gallery',
   attachments: 'Attachments',
   command_outputs: 'Command Outputs',
+  router_config: 'Router Config',
 };
 
 interface IpEntry {
   ip_address: string;
   label: string;
   is_primary: boolean;
+  dhcp: boolean;
 }
 
 interface SectionConfig {
   overview: boolean;
   credentials: boolean;
   command_outputs: boolean;
+  router_config: boolean;
   gallery: boolean;
   attachments: boolean;
   ports: boolean;
@@ -49,6 +54,8 @@ export default function DeviceForm() {
   const [type, setType] = useState<DeviceType>('server');
   const [macAddress, setMacAddress] = useState('');
   const [os, setOs] = useState('');
+  const [hostname, setHostname] = useState('');
+  const [domain, setDomain] = useState('');
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
   const [av, setAv] = useState('');
@@ -56,19 +63,23 @@ export default function DeviceForm() {
   const [subnetId, setSubnetId] = useState<number | null>(null);
   const [hostingType, setHostingType] = useState<HostingType | null>(null);
   const [hypervisorId, setHypervisorId] = useState<number | null>(null);
-  const [ips, setIps] = useState<IpEntry[]>([{ ip_address: '', label: '', is_primary: true }]);
+  const [ips, setIps] = useState<IpEntry[]>([{ ip_address: '', label: '', is_primary: true, dhcp: false }]);
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
+  const [isDirty, setIsDirty] = useState(false);
   const [sectionConfig, setSectionConfig] = useState<SectionConfig>({
     overview: true,
     credentials: true,
     command_outputs: false,
+    router_config: false,
     gallery: false,
     attachments: false,
     ports: false,
     notes: false,
     order: DEFAULT_SECTION_ORDER,
   });
+
+  useUnsavedChanges(isDirty);
 
   const { data: subnets } = useQuery({ queryKey: ['subnets', projectId], queryFn: () => fetchSubnets(projectId) });
   const { data: hypervisors } = useQuery({ queryKey: ['hypervisors', projectId], queryFn: () => fetchHypervisors(projectId) });
@@ -84,6 +95,8 @@ export default function DeviceForm() {
       setType(device.type);
       setMacAddress(device.mac_address || '');
       setOs(device.os || '');
+      setHostname(device.hostname || '');
+      setDomain(device.domain || '');
       setLocation(device.location || '');
       setNotes(device.notes || '');
       setAv(device.av || '');
@@ -96,6 +109,7 @@ export default function DeviceForm() {
           ip_address: ip.ip_address,
           label: ip.label || '',
           is_primary: !!ip.is_primary,
+          dhcp: !!ip.dhcp,
         })));
       }
       if (device.tags?.length) {
@@ -108,6 +122,7 @@ export default function DeviceForm() {
             overview: cfg.overview !== false,
             credentials: cfg.credentials !== false,
             command_outputs: cfg.command_outputs === true,
+            router_config: cfg.router_config === true,
             gallery: cfg.gallery === true,
             attachments: cfg.attachments === true,
             ports: cfg.ports === true,
@@ -125,13 +140,14 @@ export default function DeviceForm() {
   const mutation = useMutation({
     mutationFn: (data: any) => isEdit ? updateDevice(projectId, Number(id), data) : createDevice(projectId, data),
     onSuccess: (result) => {
+      setIsDirty(false);
       queryClient.invalidateQueries({ queryKey: ['devices', projectId] });
       queryClient.invalidateQueries({ queryKey: ['device', projectId, result.id] });
       navigate(`${base}/devices/${result.id}`);
     },
   });
 
-  const addIp = () => setIps([...ips, { ip_address: '', label: '', is_primary: false }]);
+  const addIp = () => setIps([...ips, { ip_address: '', label: '', is_primary: false, dhcp: false }]);
   const removeIp = (idx: number) => setIps(ips.filter((_, i) => i !== idx));
   const updateIp = (idx: number, field: keyof IpEntry, value: string | boolean) => {
     const updated = [...ips];
@@ -150,19 +166,30 @@ export default function DeviceForm() {
     setTagInput('');
   };
 
-  const dragIndex = useRef<number | null>(null);
+  const dragKey = useRef<string | null>(null);
+  const [sectionDragOver, setSectionDragOver] = useState<string | null>(null);
 
-  const handleDragStart = (idx: number) => { dragIndex.current = idx; };
-  const handleDragOver = (e: React.DragEvent, idx: number) => {
+  const handleDragStart = (key: string) => { dragKey.current = key; };
+  const handleDragOver = (e: React.DragEvent, key: string) => {
     e.preventDefault();
-    if (dragIndex.current === null || dragIndex.current === idx) return;
-    const newOrder = [...sectionConfig.order];
-    const [item] = newOrder.splice(dragIndex.current, 1);
-    newOrder.splice(idx, 0, item);
-    dragIndex.current = idx;
-    setSectionConfig(prev => ({ ...prev, order: newOrder }));
+    setSectionDragOver(key);
   };
-  const handleDragEnd = () => { dragIndex.current = null; };
+  const handleDrop = (targetKey: string) => {
+    const srcKey = dragKey.current;
+    dragKey.current = null;
+    setSectionDragOver(null);
+    if (!srcKey || srcKey === targetKey) return;
+    setSectionConfig(prev => {
+      const newOrder = [...prev.order];
+      const srcIdx = newOrder.indexOf(srcKey);
+      const tgtIdx = newOrder.indexOf(targetKey);
+      if (srcIdx === -1 || tgtIdx === -1) return prev;
+      newOrder.splice(srcIdx, 1);
+      newOrder.splice(tgtIdx, 0, srcKey);
+      return { ...prev, order: newOrder };
+    });
+  };
+  const handleDragEnd = () => { dragKey.current = null; setSectionDragOver(null); };
 
   const [validationError, setValidationError] = useState('');
 
@@ -179,6 +206,8 @@ export default function DeviceForm() {
       name, type,
       mac_address: macAddress || undefined,
       os: os || undefined,
+      hostname: hostname || undefined,
+      domain: domain || undefined,
       location: location || undefined,
       notes: notes || undefined,
       subnet_id: subnetId,
@@ -199,7 +228,7 @@ export default function DeviceForm() {
         <h2>{isEdit ? 'Edit Device' : 'New Device'}</h2>
       </div>
 
-      <form className="card" onSubmit={handleSubmit}>
+      <form className="card" onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
         <div className="form-row">
           <div className="form-group">
             <label>Name *</label>
@@ -230,6 +259,17 @@ export default function DeviceForm() {
           <div className="form-group">
             <label>OS</label>
             <input value={os} onChange={e => setOs(e.target.value)} placeholder="Ubuntu 22.04" />
+          </div>
+        </div>
+
+        <div className="form-row">
+          <div className="form-group">
+            <label>Hostname</label>
+            <input value={hostname} onChange={e => setHostname(e.target.value)} placeholder="web-server-01" />
+          </div>
+          <div className="form-group">
+            <label>Domain</label>
+            <input value={domain} onChange={e => setDomain(e.target.value)} placeholder="example.com" />
           </div>
         </div>
 
@@ -317,12 +357,21 @@ export default function DeviceForm() {
                 placeholder="Label (eth0)"
                 style={{ flex: 1, width: 'auto', maxWidth: 120 }}
               />
-              <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0 }}>
+              <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
                 <input
                   type="radio"
                   checked={ip.is_primary}
                   onChange={() => updateIp(idx, 'is_primary', true)}
-                /> Primary
+                />
+                Primary
+              </label>
+              <label style={{ fontSize: '0.8rem', whiteSpace: 'nowrap', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+                <input
+                  type="checkbox"
+                  checked={ip.dhcp}
+                  onChange={e => updateIp(idx, 'dhcp', e.target.checked)}
+                />
+                DHCP
               </label>
               {ips.length > 1 && (
                 <button type="button" className="btn btn-danger btn-sm" onClick={() => removeIp(idx)}>x</button>
@@ -360,18 +409,18 @@ export default function DeviceForm() {
         <fieldset style={{ border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.75rem 1rem', marginTop: '0.5rem' }}>
           <legend style={{ fontSize: '0.85rem', fontWeight: 600, padding: '0 0.4rem' }}>Sections</legend>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
-            {sectionConfig.order.map((key, idx) => {
-              const isCommandOutputs = key === 'command_outputs';
-              if (isCommandOutputs && type !== 'server') return null;
+            {sectionConfig.order.map((key) => {
+              if (key === 'router_config' && type !== 'router') return null;
               const checked = sectionConfig[key as keyof SectionConfig] as boolean;
               return (
                 <div
                   key={key}
+                  className={`section-reorder-item${sectionDragOver === key ? ' section-reorder-item-dragover' : ''}`}
                   draggable
-                  onDragStart={() => handleDragStart(idx)}
-                  onDragOver={e => handleDragOver(e, idx)}
+                  onDragStart={() => handleDragStart(key)}
+                  onDragOver={e => handleDragOver(e, key)}
+                  onDrop={() => handleDrop(key)}
                   onDragEnd={handleDragEnd}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', cursor: 'grab', userSelect: 'none' }}
                 >
                   <GripVertical size={14} style={{ color: 'var(--color-text-secondary)', flexShrink: 0 }} />
                   <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', cursor: 'pointer' }}>
@@ -391,7 +440,7 @@ export default function DeviceForm() {
 
         {(validationError || mutation.isError) && (
           <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
-            {validationError || (mutation.error as Error)?.message}
+            {validationError || formErrorMessage(mutation.error)}
           </div>
         )}
         <div className="actions" style={{ marginTop: '1rem' }}>

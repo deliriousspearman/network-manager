@@ -2,6 +2,7 @@ import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
 import { ValidationError, requireString, requireOneOf, optionalString, optionalOneOf, validateMac } from '../validation.js';
+import { sanitizeRichText } from '../sanitizeHtml.js';
 import type { CreateDeviceRequest } from 'shared/types.js';
 
 const DEVICE_TYPES = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone'];
@@ -15,6 +16,20 @@ const DEVICE_SORT_MAP: Record<string, string> = {
   os: 'd.os', subnet_name: 's.name', status: 'd.status', primary_ip: 'primary_ip',
 };
 
+// Turn a user-typed string into an FTS5 MATCH expression. We split on
+// whitespace, strip anything that isn't an FTS-safe token character, add
+// a prefix wildcard to each term, and AND them together. Returns null if
+// nothing usable is left — callers fall back to no search in that case.
+function buildFtsMatchQuery(raw: string): string | null {
+  if (!raw) return null;
+  const terms = raw
+    .split(/\s+/)
+    .map(t => t.replace(/[^\p{L}\p{N}._:-]/gu, ''))
+    .filter(t => t.length > 0)
+    .map(t => `"${t}"*`);
+  return terms.length > 0 ? terms.join(' AND ') : null;
+}
+
 router.get('/', (req, res) => {
   const projectId = res.locals.projectId;
 
@@ -23,22 +38,23 @@ router.get('/', (req, res) => {
     h.name as hypervisor_name,
     (SELECT ip_address FROM device_ips WHERE device_id = d.id AND is_primary = 1 LIMIT 1) as primary_ip,
     (SELECT GROUP_CONCAT(tag) FROM device_tags WHERE device_id = d.id) as tags_csv,
-    (SELECT COUNT(*) FROM credentials WHERE device_id = d.id) as credential_count`;
-  const fromClause = `FROM devices d
-    LEFT JOIN subnets s ON d.subnet_id = s.id
-    LEFT JOIN devices h ON d.hypervisor_id = h.id
-    WHERE d.project_id = ?`;
+    (SELECT COUNT(*) FROM credentials WHERE device_id = d.id) as credential_count,
+    (SELECT COUNT(*) FROM credentials WHERE device_id = d.id AND used = 1) > 0 as any_credential_used`;
 
   const search = ((req.query.search as string) || '').trim();
-  let searchClause = '';
-  const searchParams: any[] = [];
-  if (search) {
-    const like = `%${search}%`;
-    searchClause = ` AND (d.name LIKE ? OR d.os LIKE ? OR d.type LIKE ? OR s.name LIKE ?
-      OR EXISTS (SELECT 1 FROM device_ips WHERE device_id = d.id AND ip_address LIKE ?)
-      OR EXISTS (SELECT 1 FROM device_tags WHERE device_id = d.id AND tag LIKE ?))`;
-    searchParams.push(like, like, like, like, like, like);
-  }
+  const ftsQuery = buildFtsMatchQuery(search);
+
+  const fromClause = ftsQuery
+    ? `FROM devices d
+       JOIN devices_fts ON devices_fts.rowid = d.id
+       LEFT JOIN subnets s ON d.subnet_id = s.id
+       LEFT JOIN devices h ON d.hypervisor_id = h.id
+       WHERE d.project_id = ? AND devices_fts MATCH ?`
+    : `FROM devices d
+       LEFT JOIN subnets s ON d.subnet_id = s.id
+       LEFT JOIN devices h ON d.hypervisor_id = h.id
+       WHERE d.project_id = ?`;
+  const searchParams: any[] = ftsQuery ? [ftsQuery] : [];
 
   const sortCol = DEVICE_SORT_MAP[req.query.sort as string] || 'd.name';
   const sortDir = req.query.order === 'desc' ? 'DESC' : 'ASC';
@@ -49,8 +65,8 @@ router.get('/', (req, res) => {
     const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
     const offset = (page - 1) * limit;
     const baseParams = [projectId, ...searchParams];
-    const { total } = db.prepare(`SELECT COUNT(*) as total ${fromClause}${searchClause}`).get(...baseParams) as { total: number };
-    const rows = db.prepare(`SELECT ${selectCols} ${fromClause}${searchClause} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...baseParams, limit, offset) as any[];
+    const { total } = db.prepare(`SELECT COUNT(*) as total ${fromClause}`).get(...baseParams) as { total: number };
+    const rows = db.prepare(`SELECT ${selectCols} ${fromClause} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...baseParams, limit, offset) as any[];
     return res.json({
       items: rows.map(d => ({ ...d, tags: d.tags_csv ? d.tags_csv.split(',') : [], tags_csv: undefined })),
       total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)),
@@ -58,7 +74,7 @@ router.get('/', (req, res) => {
   }
 
   // Unpaginated mode (legacy — used by diagram "add device" dropdown etc.)
-  const rows = db.prepare(`SELECT ${selectCols} ${fromClause}${searchClause} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...searchParams) as any[];
+  const rows = db.prepare(`SELECT ${selectCols} ${fromClause} ORDER BY ${sortCol} ${sortDir}`).all(projectId, ...searchParams) as any[];
   res.json(rows.map(d => ({ ...d, tags: d.tags_csv ? d.tags_csv.split(',') : [], tags_csv: undefined })));
 });
 
@@ -97,10 +113,10 @@ router.get('/:id', (req, res) => {
 });
 
 const insertDevice = db.prepare(
-  'INSERT INTO devices (name, type, mac_address, os, location, notes, subnet_id, hosting_type, hypervisor_id, project_id, section_config, rich_notes, av, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  'INSERT INTO devices (name, type, mac_address, os, hostname, domain, location, notes, subnet_id, hosting_type, hypervisor_id, project_id, section_config, rich_notes, av, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
 );
 const insertIp = db.prepare(
-  'INSERT INTO device_ips (device_id, ip_address, label, is_primary) VALUES (?, ?, ?, ?)'
+  'INSERT INTO device_ips (device_id, ip_address, label, is_primary, dhcp) VALUES (?, ?, ?, ?, ?)'
 );
 const insertTag = db.prepare(
   'INSERT INTO device_tags (device_id, tag) VALUES (?, ?)'
@@ -110,6 +126,7 @@ const createDevice = db.transaction((body: CreateDeviceRequest, projectId: numbe
   const result = insertDevice.run(
     body.name, body.type,
     body.mac_address ?? null, body.os ?? null,
+    body.hostname ?? null, body.domain ?? null,
     body.location ?? null, body.notes ?? null,
     body.subnet_id ?? null,
     body.hosting_type ?? null, body.hypervisor_id ?? null,
@@ -120,7 +137,7 @@ const createDevice = db.transaction((body: CreateDeviceRequest, projectId: numbe
 
   if (body.ips && body.ips.length > 0) {
     for (const ip of body.ips) {
-      insertIp.run(deviceId, ip.ip_address, ip.label ?? null, ip.is_primary ? 1 : 0);
+      insertIp.run(deviceId, ip.ip_address, ip.label ?? null, ip.is_primary ? 1 : 0, ip.dhcp ? 1 : 0);
     }
   }
 
@@ -138,10 +155,23 @@ function validateDeviceBody(body: any) {
   requireOneOf(body.type, 'type', DEVICE_TYPES);
   if (body.mac_address) body.mac_address = validateMac(body.mac_address);
   if (body.os !== undefined) body.os = optionalString(body.os, 200);
+  if (body.hostname !== undefined) body.hostname = optionalString(body.hostname, 253);
+  if (body.domain !== undefined) body.domain = optionalString(body.domain, 253);
   if (body.location !== undefined) body.location = optionalString(body.location, 200);
   if (body.notes !== undefined) body.notes = optionalString(body.notes, 5000);
   if (body.hosting_type !== undefined) body.hosting_type = optionalOneOf(body.hosting_type, HOSTING_TYPES);
   if (body.status !== undefined) body.status = optionalOneOf(body.status, STATUS_VALUES);
+  // rich_notes is user-authored HTML. Sanitize server-side — the client runs DOMPurify
+  // but API callers can bypass that, so we must scrub before storing.
+  if (body.rich_notes != null) {
+    if (typeof body.rich_notes !== 'string') {
+      throw new ValidationError('rich_notes must be a string');
+    }
+    if (body.rich_notes.length > 200_000) {
+      throw new ValidationError('rich_notes must be at most 200000 characters');
+    }
+    body.rich_notes = sanitizeRichText(body.rich_notes);
+  }
 }
 
 router.post('/', (req, res) => {
@@ -152,23 +182,41 @@ router.post('/', (req, res) => {
     throw e;
   }
   const projectId = res.locals.projectId;
-  const deviceId = createDevice(req.body as CreateDeviceRequest, projectId);
-  const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceId) as Record<string, unknown>;
-  const ips = db.prepare('SELECT * FROM device_ips WHERE device_id = ?').all(deviceId);
-  const tags = (db.prepare('SELECT tag FROM device_tags WHERE device_id = ?').all(deviceId) as { tag: string }[]).map(r => r.tag);
-  logActivity({ projectId, action: 'created', resourceType: 'device', resourceId: deviceId, resourceName: (req.body as CreateDeviceRequest).name });
-  res.status(201).json({ ...device, ips, tags });
+  try {
+    const deviceId = createDevice(req.body as CreateDeviceRequest, projectId);
+    const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(deviceId) as Record<string, unknown>;
+    const ips = db.prepare('SELECT * FROM device_ips WHERE device_id = ?').all(deviceId);
+    const tags = (db.prepare('SELECT tag FROM device_tags WHERE device_id = ?').all(deviceId) as { tag: string }[]).map(r => r.tag);
+    logActivity({ projectId, action: 'created', resourceType: 'device', resourceId: deviceId, resourceName: (req.body as CreateDeviceRequest).name });
+    res.status(201).json({ ...device, ips, tags });
+  } catch (err: any) {
+    if (err.message?.includes('cannot be its own hypervisor')) return res.status(400).json({ error: err.message });
+    console.error('Device creation failed:', err);
+    res.status(500).json({ error: 'Failed to create device' });
+  }
 });
+
+// Walk the hypervisor chain up from `startId` and return 1 if `targetId` appears
+// anywhere in the ancestor chain. Used to reject updates that would create a cycle.
+const hypervisorChainContains = db.prepare(`
+  WITH RECURSIVE chain(id, hypervisor_id) AS (
+    SELECT id, hypervisor_id FROM devices WHERE id = ?
+    UNION ALL
+    SELECT d.id, d.hypervisor_id FROM devices d
+    JOIN chain c ON d.id = c.hypervisor_id
+  )
+  SELECT 1 AS hit FROM chain WHERE id = ? LIMIT 1
+`);
 
 const updateDevice = db.transaction((id: string, body: CreateDeviceRequest) => {
   db.prepare(
-    `UPDATE devices SET name = ?, type = ?, mac_address = ?, os = ?, location = ?, notes = ?, subnet_id = ?, hosting_type = ?, hypervisor_id = ?, section_config = ?, rich_notes = ?, av = ?, status = ?, updated_at = datetime('now') WHERE id = ?`
-  ).run(body.name, body.type, body.mac_address ?? null, body.os ?? null, body.location ?? null, body.notes ?? null, body.subnet_id ?? null, body.hosting_type ?? null, body.hypervisor_id ?? null, body.section_config ?? null, body.rich_notes ?? null, body.av ?? null, body.status ?? null, id);
+    `UPDATE devices SET name = ?, type = ?, mac_address = ?, os = ?, hostname = ?, domain = ?, location = ?, notes = ?, subnet_id = ?, hosting_type = ?, hypervisor_id = ?, section_config = ?, rich_notes = ?, av = ?, status = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(body.name, body.type, body.mac_address ?? null, body.os ?? null, body.hostname ?? null, body.domain ?? null, body.location ?? null, body.notes ?? null, body.subnet_id ?? null, body.hosting_type ?? null, body.hypervisor_id ?? null, body.section_config ?? null, body.rich_notes ?? null, body.av ?? null, body.status ?? null, id);
 
   db.prepare('DELETE FROM device_ips WHERE device_id = ?').run(id);
   if (body.ips && body.ips.length > 0) {
     for (const ip of body.ips) {
-      insertIp.run(Number(id), ip.ip_address, ip.label ?? null, ip.is_primary ? 1 : 0);
+      insertIp.run(Number(id), ip.ip_address, ip.label ?? null, ip.is_primary ? 1 : 0, ip.dhcp ? 1 : 0);
     }
   }
 
@@ -196,12 +244,32 @@ router.put('/:id', (req, res) => {
     return res.status(409).json({ error: 'This device was modified by another session. Please refresh and try again.' });
   }
 
-  updateDevice(req.params.id, req.body as CreateDeviceRequest);
-  const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(req.params.id) as Record<string, unknown>;
-  const ips = db.prepare('SELECT * FROM device_ips WHERE device_id = ?').all(req.params.id);
-  const tags = (db.prepare('SELECT tag FROM device_tags WHERE device_id = ?').all(req.params.id) as { tag: string }[]).map(r => r.tag);
-  logActivity({ projectId, action: 'updated', resourceType: 'device', resourceId: Number(req.params.id), resourceName: (req.body as CreateDeviceRequest).name });
-  res.json({ ...device, ips, tags });
+  // Hypervisor cycle check: if A is being set under B, B must not already be a
+  // descendant of A (otherwise A would end up as its own ancestor).
+  if (req.body.hypervisor_id != null) {
+    const proposedHv = Number(req.body.hypervisor_id);
+    const selfId = Number(req.params.id);
+    if (proposedHv === selfId) {
+      return res.status(400).json({ error: 'A device cannot be its own hypervisor' });
+    }
+    const hit = hypervisorChainContains.get(proposedHv, selfId) as { hit: number } | undefined;
+    if (hit) {
+      return res.status(400).json({ error: 'Hypervisor assignment would create a cycle' });
+    }
+  }
+
+  try {
+    updateDevice(req.params.id, req.body as CreateDeviceRequest);
+    const device = db.prepare('SELECT * FROM devices WHERE id = ?').get(req.params.id) as Record<string, unknown>;
+    const ips = db.prepare('SELECT * FROM device_ips WHERE device_id = ?').all(req.params.id);
+    const tags = (db.prepare('SELECT tag FROM device_tags WHERE device_id = ?').all(req.params.id) as { tag: string }[]).map(r => r.tag);
+    logActivity({ projectId, action: 'updated', resourceType: 'device', resourceId: Number(req.params.id), resourceName: (req.body as CreateDeviceRequest).name });
+    res.json({ ...device, ips, tags });
+  } catch (err: any) {
+    if (err.message?.includes('cannot be its own hypervisor')) return res.status(400).json({ error: err.message });
+    console.error('Device update failed:', err);
+    res.status(500).json({ error: 'Failed to update device' });
+  }
 });
 
 router.delete('/:id', (req, res) => {

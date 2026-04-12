@@ -27,6 +27,7 @@ const TIMEZONES = [
 ];
 
 export default function AdminSettingsPage() {
+  useEffect(() => { document.title = 'Network Manager - Admin Settings'; return () => { document.title = 'Network Manager'; }; }, []);
   const queryClient = useQueryClient();
 
   const { data: projects = [] } = useQuery({
@@ -85,6 +86,7 @@ export default function AdminSettingsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [formName, setFormName] = useState('');
   const [formSlug, setFormSlug] = useState('');
+  const [formShortName, setFormShortName] = useState('');
 
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
@@ -111,6 +113,7 @@ export default function AdminSettingsPage() {
     setEditId(null);
     setFormName('');
     setFormSlug('');
+    setFormShortName('');
     setShowForm(true);
   }
 
@@ -118,11 +121,12 @@ export default function AdminSettingsPage() {
     setEditId(project.id);
     setFormName(project.name);
     setFormSlug(project.slug);
+    setFormShortName(project.short_name || '');
     setShowForm(true);
   }
 
   const createMut = useMutation({
-    mutationFn: () => createProject({ name: formName.trim(), slug: formSlug.trim() }),
+    mutationFn: () => createProject({ name: formName.trim(), slug: formSlug.trim(), short_name: formShortName.trim() || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       setShowForm(false);
@@ -130,7 +134,7 @@ export default function AdminSettingsPage() {
   });
 
   const updateMut = useMutation({
-    mutationFn: () => updateProject(editId!, { name: formName.trim(), slug: formSlug.trim() }),
+    mutationFn: () => updateProject(editId!, { name: formName.trim(), slug: formSlug.trim(), short_name: formShortName.trim() || undefined }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] });
       setShowForm(false);
@@ -377,6 +381,16 @@ export default function AdminSettingsPage() {
                   placeholder="e.g. Home Network"
                 />
               </div>
+              <div className="form-group" style={{ flex: 1 }}>
+                <label>Short Name</label>
+                <input
+                  type="text"
+                  value={formShortName}
+                  onChange={e => setFormShortName(e.target.value.toUpperCase().slice(0, 2))}
+                  placeholder="e.g. HN"
+                  maxLength={2}
+                />
+              </div>
               <div className="form-group" style={{ flex: 2 }}>
                 <label>Slug</label>
                 <input
@@ -411,6 +425,7 @@ export default function AdminSettingsPage() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Short Name</th>
                   <th>Slug</th>
                   <th>Devices</th>
                   <th>Subnets</th>
@@ -421,6 +436,7 @@ export default function AdminSettingsPage() {
                 {projects.map((project: Project) => (
                   <tr key={project.id}>
                     <td style={{ fontWeight: 500 }}>{project.name}</td>
+                    <td style={{ fontWeight: 600 }}>{project.short_name}</td>
                     <td style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{project.slug}</td>
                     <td>{project.device_count ?? 0}</td>
                     <td>{project.subnet_count ?? 0}</td>

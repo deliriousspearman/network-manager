@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 type ConfirmFn = (message: string, title?: string) => Promise<boolean>;
 
@@ -42,17 +43,24 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
       {children}
       {state && createPortal(
         <div className="confirm-overlay" onClick={() => handleClose(false)}>
-          <div className="confirm-dialog" onClick={e => e.stopPropagation()}>
-            <div className="confirm-dialog-title">{state.title}</div>
-            <div className="confirm-dialog-message">{state.message}</div>
-            <div className="confirm-dialog-actions">
-              <button className="btn btn-secondary" onClick={() => handleClose(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={() => handleClose(true)} autoFocus>Confirm</button>
-            </div>
-          </div>
+          <ConfirmDialogInner state={state} onClose={handleClose} />
         </div>,
         document.body
       )}
     </ConfirmDialogContext.Provider>
+  );
+}
+
+function ConfirmDialogInner({ state, onClose }: { state: { message: string; title: string }; onClose: (result: boolean) => void }) {
+  const trapRef = useFocusTrap<HTMLDivElement>();
+  return (
+    <div className="confirm-dialog" ref={trapRef} onClick={e => e.stopPropagation()}>
+      <div className="confirm-dialog-title">{state.title}</div>
+      <div className="confirm-dialog-message">{state.message}</div>
+      <div className="confirm-dialog-actions">
+        <button className="btn btn-secondary" onClick={() => onClose(false)}>Cancel</button>
+        <button className="btn btn-primary" onClick={() => onClose(true)}>Confirm</button>
+      </div>
+    </div>
   );
 }

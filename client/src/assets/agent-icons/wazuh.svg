@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Shield outline -->
+  <path d="M64 14 L106 28 L106 64 C106 88 88 106 64 114 C40 106 22 88 22 64 L22 28 Z"/>
+  <!-- Eye lens for monitoring -->
+  <circle cx="64" cy="60" r="16"/>
+  <circle cx="64" cy="60" r="6" fill="currentColor"/>
+  <!-- Scan lines -->
+  <line x1="36" y1="60" x2="44" y2="60"/>
+  <line x1="84" y1="60" x2="92" y2="60"/>
+  <line x1="64" y1="32" x2="64" y2="40"/>
+  <line x1="64" y1="80" x2="64" y2="88"/>
+</svg>

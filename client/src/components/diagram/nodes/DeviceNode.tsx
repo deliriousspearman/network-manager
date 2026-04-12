@@ -1,5 +1,8 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from '@xyflow/react';
+import { truncateLabel } from './truncateLabel';
+import { FavouriteStar } from './FavouriteStar';
+import { CredentialKey } from './CredentialKey';
 
 import serverIcon from '../../../assets/device-icons/server.svg?url';
 import workstationIcon from '../../../assets/device-icons/workstation.svg?url';
@@ -61,8 +64,13 @@ function DeviceNode({ data }: NodeProps) {
     favourite?: boolean;
     hideHandles?: boolean;
     hasCredentials?: boolean;
+    anyCredentialUsed?: boolean;
     showCredentials?: boolean;
     status?: string | null;
+    av?: string | null;
+    showAv?: boolean;
+    agents?: { id: number; name: string; agentType: string; iconUrl: string }[];
+    showAgents?: boolean;
   };
   const vmClass = d.hostingType === 'vm' ? ' node-vm' : '';
   const defaultIcon = d.hostingType === 'hypervisor' ? hypervisorIcon : DEFAULT_DEVICE_ICONS[d.deviceType];
@@ -75,16 +83,34 @@ function DeviceNode({ data }: NodeProps) {
 
   return (
     <div className={`device-node ${CLASS_MAP[d.deviceType] || ''}${vmClass}${d.hideHandles ? ' hide-handles' : ''}`} style={style}>
-      {d.favourite && <div className="node-favourite">⭐</div>}
-      {!!d.hasCredentials && d.showCredentials !== false && <div className="node-credentials">🔑</div>}
-      {d.status && <div className={`node-status node-status-${d.status}`} title={`Status: ${d.status}`} />}
+      {d.favourite && <div className="node-favourite"><FavouriteStar size="2.5rem" /></div>}
+      {!!d.hasCredentials && d.showCredentials !== false && (
+        <div className="node-credentials" title={d.anyCredentialUsed ? 'Credentials (used)' : 'Credentials (unused)'}>
+          <CredentialKey used={!!d.anyCredentialUsed} size="2rem" />
+        </div>
+      )}
+      {!!d.av && d.showAv !== false && <div className="node-av" title={`AV: ${d.av}`}>🛡️</div>}
+      {d.agents && d.agents.length > 0 && d.showAgents !== false && (
+        <div className="node-agents">
+          {d.agents.slice(0, 2).map(a => (
+            <img
+              key={a.id}
+              src={a.iconUrl}
+              alt={a.agentType}
+              title={`${a.name} (${a.agentType})`}
+              draggable={false}
+            />
+          ))}
+        </div>
+      )}
+      {d.status && <div className={`node-status node-status-${d.status}`} title={`Status: ${d.status}`} aria-label={`Status: ${d.status}`} />}
       <div className="node-icon">
         {d.customIcon
           ? d.customIcon
           : <img src={iconSrc} alt={d.deviceType} width={64} height={64} style={{ objectFit: 'contain' }} draggable={false} />
         }
       </div>
-      <div className="node-label" style={labelStyle}>{d.label}</div>
+      <div className="node-label" style={labelStyle} title={d.label}>{truncateLabel(d.label)}</div>
       <div className="node-ip" style={labelStyle}>{d.ip || 'No IP'}</div>
       {d.hostingType && <div className="node-hosting-tag">{HOSTING_SHORT[d.hostingType] || ''}</div>}
       {/* Top: left, center, right */}

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Hexagon body -->
+  <path d="M64 12 L108 36 L108 92 L64 116 L20 92 L20 36 Z"/>
+  <!-- Stylised "Z" -->
+  <line x1="38" y1="44" x2="90" y2="44"/>
+  <line x1="90" y1="44" x2="38" y2="84"/>
+  <line x1="38" y1="84" x2="90" y2="84"/>
+</svg>

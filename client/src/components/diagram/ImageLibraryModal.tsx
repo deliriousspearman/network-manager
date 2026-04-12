@@ -5,6 +5,7 @@ import { Upload, Plus, Trash2 } from 'lucide-react';
 import { fetchImageLibrary, imageLibraryImageUrl, fetchImageLibraryData, uploadImageToLibrary, deleteImageFromLibrary } from '../../api/imageLibrary';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/Toast';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
@@ -107,62 +108,93 @@ export default function ImageLibraryModal({ projectId, open, onClose, onPlaceIma
 
   return createPortal(
     <div className="confirm-overlay" onClick={onClose}>
-      <div className="confirm-dialog image-library-modal" onClick={e => e.stopPropagation()}>
-        <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span>Image Library</span>
-          <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
-        </div>
-
-        <div className="image-library-upload-area">
-          <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <Upload size={14} style={{ marginRight: 4 }} />
-            {uploading ? 'Uploading...' : 'Upload Image'}
-          </button>
-          <span className="upload-info">Max 2 MB. JPEG, PNG, GIF, WebP, SVG.</span>
-          <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload} />
-        </div>
-
-        {isLoading ? (
-          <div className="image-library-empty">Loading...</div>
-        ) : !images || images.length === 0 ? (
-          <div className="image-library-empty">No images in library. Upload an image to get started.</div>
-        ) : (
-          <div className="image-library-grid">
-            {images.map(img => (
-              <div key={img.id} className="image-library-item">
-                <img
-                  className="image-library-item-thumb"
-                  src={imageLibraryImageUrl(projectId, img.id)}
-                  alt={img.filename}
-                  draggable={false}
-                />
-                <div className="image-library-item-info">
-                  <div className="filename" title={img.filename}>{img.filename}</div>
-                  <div className="filesize">{formatFileSize(img.size)}</div>
-                </div>
-                <div className="image-library-item-actions">
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => handlePlace(img.id)}
-                    disabled={placingId === img.id}
-                  >
-                    <Plus size={13} style={{ marginRight: 2 }} />
-                    {placingId === img.id ? 'Adding...' : 'Add'}
-                  </button>
-                  <button
-                    className="btn btn-danger btn-sm"
-                    onClick={() => handleDelete(img.id)}
-                    title="Delete from library"
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <ImageLibraryInner
+        onClose={onClose}
+        projectId={projectId}
+        images={images}
+        isLoading={isLoading}
+        uploading={uploading}
+        placingId={placingId}
+        fileInputRef={fileInputRef}
+        handleUpload={handleUpload}
+        handlePlace={handlePlace}
+        handleDelete={handleDelete}
+      />
     </div>,
     document.body
+  );
+}
+
+interface InnerProps {
+  onClose: () => void;
+  projectId: number;
+  images: Awaited<ReturnType<typeof fetchImageLibrary>> | undefined;
+  isLoading: boolean;
+  uploading: boolean;
+  placingId: number | null;
+  fileInputRef: React.RefObject<HTMLInputElement>;
+  handleUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  handlePlace: (id: number) => void;
+  handleDelete: (id: number) => void;
+}
+
+function ImageLibraryInner({ onClose, projectId, images, isLoading, uploading, placingId, fileInputRef, handleUpload, handlePlace, handleDelete }: InnerProps) {
+  const trapRef = useFocusTrap<HTMLDivElement>();
+  return (
+    <div className="confirm-dialog image-library-modal" ref={trapRef} onClick={e => e.stopPropagation()}>
+      <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <span>Image Library</span>
+        <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
+      </div>
+
+      <div className="image-library-upload-area">
+        <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+          <Upload size={14} style={{ marginRight: 4 }} />
+          {uploading ? 'Uploading...' : 'Upload Image'}
+        </button>
+        <span className="upload-info">Max 2 MB. JPEG, PNG, GIF, WebP, SVG.</span>
+        <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleUpload} />
+      </div>
+
+      {isLoading ? (
+        <div className="image-library-empty">Loading...</div>
+      ) : !images || images.length === 0 ? (
+        <div className="image-library-empty">No images in library. Upload an image to get started.</div>
+      ) : (
+        <div className="image-library-grid">
+          {images.map(img => (
+            <div key={img.id} className="image-library-item">
+              <img
+                className="image-library-item-thumb"
+                src={imageLibraryImageUrl(projectId, img.id)}
+                alt={img.filename}
+                draggable={false}
+              />
+              <div className="image-library-item-info">
+                <div className="filename" title={img.filename}>{img.filename}</div>
+                <div className="filesize">{formatFileSize(img.size)}</div>
+              </div>
+              <div className="image-library-item-actions">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => handlePlace(img.id)}
+                  disabled={placingId === img.id}
+                >
+                  <Plus size={13} style={{ marginRight: 2 }} />
+                  {placingId === img.id ? 'Adding...' : 'Add'}
+                </button>
+                <button
+                  className="btn btn-danger btn-sm"
+                  onClick={() => handleDelete(img.id)}
+                  title="Delete from library"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

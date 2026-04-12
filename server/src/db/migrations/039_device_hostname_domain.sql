@@ -1,0 +1,2 @@
+ALTER TABLE devices ADD COLUMN hostname TEXT;
+ALTER TABLE devices ADD COLUMN domain TEXT;

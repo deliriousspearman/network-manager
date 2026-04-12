@@ -21,6 +21,8 @@ tar czf "$SCRIPT_DIR/$TARBALL" \
   --exclude='.env' \
   --exclude='.env.*' \
   --exclude='*.db' \
+  --exclude='node_modules' \
+  --exclude='vendor' \
   --exclude="$TARBALL" \
   "$DIR_NAME"
 
@@ -36,7 +38,6 @@ echo "  1. Install Node.js v20 (via package manager or nvm)"
 echo "  2. Transfer and extract:"
 echo "       tar xzf $TARBALL"
 echo "       cd $DIR_NAME"
-echo "  3. Run the server:"
-echo "       node server/dist/index.js"
-echo "     Or for development mode:"
-echo "       npm run dev"
+echo "  3. Run setup (offline or online):"
+echo "       ./scripts/setup-offline.sh   # if vendor-deps.tar.gz is included"
+echo "       ./scripts/setup.sh           # if internet is available"

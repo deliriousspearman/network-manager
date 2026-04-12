@@ -1,6 +1,6 @@
 export type DeviceType = 'server' | 'workstation' | 'router' | 'switch' | 'nas' | 'firewall' | 'access_point' | 'iot' | 'camera' | 'phone';
 export declare const DEVICE_TYPE_LABELS: Record<DeviceType, string>;
-export type CommandType = 'ps' | 'netstat' | 'last' | 'ip_a' | 'mount' | 'ip_r' | 'freeform' | 'systemctl_status';
+export type CommandType = 'ps' | 'netstat' | 'last' | 'ip_a' | 'mount' | 'ip_r' | 'freeform' | 'systemctl_status' | 'arp';
 export type ConnectionType = 'ethernet' | 'wifi' | 'vpn' | 'fiber' | 'serial';
 export type HostingType = 'baremetal' | 'vm' | 'hypervisor';
 export interface Subnet {
@@ -18,13 +18,42 @@ export interface Device {
     type: DeviceType;
     mac_address: string | null;
     os: string | null;
+    hostname: string | null;
+    domain: string | null;
     location: string | null;
     notes: string | null;
     subnet_id: number | null;
     hosting_type: HostingType | null;
     hypervisor_id: number | null;
+    section_config: string | null;
+    rich_notes: string | null;
+    av: string | null;
+    status: string | null;
     created_at: string;
     updated_at: string;
+}
+export interface DeviceImage {
+    id: number;
+    device_id: number;
+    filename: string;
+    mime_type: string;
+    created_at: string;
+}
+export interface DeviceAttachment {
+    id: number;
+    device_id: number;
+    filename: string;
+    mime_type: string;
+    size: number;
+    created_at: string;
+}
+export interface DevicePort {
+    id: number;
+    device_id: number;
+    port_number: number;
+    state: string;
+    service: string | null;
+    created_at: string;
 }
 export interface DeviceIp {
     id: number;
@@ -39,6 +68,7 @@ export interface DeviceWithIps extends Device {
     subnet_name?: string | null;
     primary_ip?: string | null;
     hypervisor_name?: string | null;
+    credential_count?: number;
     vms?: {
         id: number;
         name: string;
@@ -49,12 +79,17 @@ export interface DeviceWithIps extends Device {
 }
 export interface Connection {
     id: number;
-    source_device_id: number;
-    target_device_id: number;
+    source_device_id: number | null;
+    target_device_id: number | null;
+    source_subnet_id: number | null;
+    target_subnet_id: number | null;
     label: string | null;
     connection_type: string;
+    edge_type: string;
     source_handle: string | null;
     target_handle: string | null;
+    source_port: string | null;
+    target_port: string | null;
     edge_color: string | null;
     edge_width: number | null;
     label_color: string | null;
@@ -68,6 +103,7 @@ export interface CommandOutput {
     raw_output: string;
     captured_at: string;
     title: string | null;
+    parse_output: number;
 }
 export interface ParsedProcess {
     id: number;
@@ -131,6 +167,13 @@ export interface ParsedService {
     sub: string;
     description: string;
 }
+export interface ParsedArpEntry {
+    id: number;
+    output_id: number;
+    ip: string | null;
+    mac_address: string | null;
+    interface_name: string | null;
+}
 export interface CommandOutputWithParsed extends CommandOutput {
     parsed_processes?: ParsedProcess[];
     parsed_connections?: ParsedNetConnection[];
@@ -139,6 +182,7 @@ export interface CommandOutputWithParsed extends CommandOutput {
     parsed_mounts?: ParsedMount[];
     parsed_routes?: ParsedRoute[];
     parsed_services?: ParsedService[];
+    parsed_arp?: ParsedArpEntry[];
 }
 export interface DiagramDeviceNode {
     id: number;
@@ -159,6 +203,7 @@ export interface DiagramDeviceNode {
     x: number;
     y: number;
     has_credentials: boolean;
+    status: string | null;
 }
 export interface DiagramSubnetNode {
     id: number;
@@ -178,6 +223,7 @@ export interface SubnetMembership {
 export interface NodePrefs {
     borderColor?: string;
     bgColor?: string;
+    labelColor?: string;
     icon?: string;
     favourite?: boolean;
     borderStyle?: string;
@@ -188,6 +234,45 @@ export interface LegendItem {
     icon: string;
     label: string;
 }
+export interface DiagramView {
+    id: number;
+    project_id: number;
+    name: string;
+    is_default: number;
+    created_at: string;
+}
+export interface DiagramAnnotation {
+    id: number;
+    project_id: number;
+    x: number;
+    y: number;
+    text: string;
+    font_size: number;
+    color: string | null;
+    view_id: number | null;
+    created_at: string;
+}
+export interface DiagramImage {
+    id: number;
+    project_id: number;
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    filename: string;
+    mime_type: string;
+    label: string | null;
+    view_id: number | null;
+    created_at: string;
+}
+export interface ImageLibraryItem {
+    id: number;
+    project_id: number;
+    filename: string;
+    mime_type: string;
+    size: number;
+    created_at: string;
+}
 export interface DiagramData {
     devices: DiagramDeviceNode[];
     subnets: DiagramSubnetNode[];
@@ -195,12 +280,20 @@ export interface DiagramData {
     subnet_memberships: SubnetMembership[];
     node_preferences: Record<string, NodePrefs>;
     legend_items: LegendItem[];
+    annotations: DiagramAnnotation[];
+    views: DiagramView[];
+    current_view_id: number;
+    device_icon_overrides: number[];
+    type_default_icons: string[];
+    diagram_images: DiagramImage[];
 }
 export interface CreateDeviceRequest {
     name: string;
     type: DeviceType;
     mac_address?: string;
     os?: string;
+    hostname?: string;
+    domain?: string;
     location?: string;
     notes?: string;
     subnet_id?: number | null;
@@ -212,6 +305,10 @@ export interface CreateDeviceRequest {
         is_primary?: boolean;
     }[];
     tags?: string[];
+    section_config?: string;
+    rich_notes?: string;
+    av?: string;
+    status?: string;
 }
 export interface CreateSubnetRequest {
     name: string;
@@ -220,20 +317,145 @@ export interface CreateSubnetRequest {
     description?: string;
 }
 export interface CreateConnectionRequest {
-    source_device_id: number;
-    target_device_id: number;
+    source_device_id?: number;
+    target_device_id?: number;
+    source_subnet_id?: number;
+    target_subnet_id?: number;
     label?: string;
     connection_type?: string;
+    edge_type?: string;
+    edge_color?: string;
+    edge_width?: number;
     source_handle?: string;
     target_handle?: string;
+    source_port?: string;
+    target_port?: string;
 }
 export interface SubmitCommandOutputRequest {
     command_type: CommandType;
     raw_output: string;
     title?: string;
+    parse_output?: boolean;
+}
+export interface UpdateCommandOutputRequest {
+    raw_output?: string;
+    captured_at?: string;
+    title?: string;
+}
+export declare const ROUTER_VENDORS: readonly ["cisco", "unifi", "mikrotik", "juniper", "fortigate", "pfsense"];
+export type RouterVendor = typeof ROUTER_VENDORS[number];
+export declare const ROUTER_VENDOR_LABELS: Record<RouterVendor, string>;
+export interface RouterConfig {
+    id: number;
+    device_id: number;
+    vendor: RouterVendor;
+    raw_config: string;
+    captured_at: string;
+    title: string | null;
+    parse_output: number;
+    hostname: string | null;
+    os_version: string | null;
+    model: string | null;
+    domain: string | null;
+    timezone: string | null;
+    ntp_servers: string | null;
+}
+export interface ParsedRouterInterface {
+    id: number;
+    config_id: number;
+    interface_name: string;
+    description: string | null;
+    ip_address: string | null;
+    subnet_mask: string | null;
+    vlan: number | null;
+    admin_status: string | null;
+    mac_address: string | null;
+}
+export interface ParsedRouterVlan {
+    id: number;
+    config_id: number;
+    vlan_id: number;
+    name: string | null;
+}
+export interface ParsedRouterStaticRoute {
+    id: number;
+    config_id: number;
+    destination: string;
+    mask: string | null;
+    next_hop: string | null;
+    metric: number | null;
+    admin_distance: number | null;
+}
+export interface ParsedRouterAcl {
+    id: number;
+    config_id: number;
+    acl_name: string;
+    sequence: number | null;
+    action: string;
+    protocol: string | null;
+    src: string | null;
+    src_port: string | null;
+    dst: string | null;
+    dst_port: string | null;
+}
+export interface ParsedRouterNatRule {
+    id: number;
+    config_id: number;
+    nat_type: string;
+    protocol: string | null;
+    inside_src: string | null;
+    inside_port: string | null;
+    outside_src: string | null;
+    outside_port: string | null;
+}
+export interface ParsedRouterDhcpPool {
+    id: number;
+    config_id: number;
+    pool_name: string;
+    network: string | null;
+    netmask: string | null;
+    default_router: string | null;
+    dns_servers: string | null;
+    lease_time: string | null;
+    domain_name: string | null;
+}
+export interface ParsedRouterUser {
+    id: number;
+    config_id: number;
+    username: string;
+    privilege: number | null;
+    auth_method: string | null;
+}
+export interface RouterConfigWithParsed extends RouterConfig {
+    parsed_interfaces?: ParsedRouterInterface[];
+    parsed_vlans?: ParsedRouterVlan[];
+    parsed_static_routes?: ParsedRouterStaticRoute[];
+    parsed_acls?: ParsedRouterAcl[];
+    parsed_nat_rules?: ParsedRouterNatRule[];
+    parsed_dhcp_pools?: ParsedRouterDhcpPool[];
+    parsed_users?: ParsedRouterUser[];
+}
+export interface SubmitRouterConfigRequest {
+    vendor: RouterVendor;
+    raw_config: string;
+    title?: string;
+    parse_output?: boolean;
+}
+export interface UpdateRouterConfigRequest {
+    raw_config?: string;
+    captured_at?: string;
+    title?: string;
+    vendor?: RouterVendor;
 }
 export interface AppSettings {
     timezone: string;
+    notification_enabled?: string;
+    notification_text?: string;
+    notification_bg_color?: string;
+    notification_text_color?: string;
+    notification_height?: string;
+    notification_font_size?: string;
+    notification_bold?: string;
 }
 export interface UpdatePositionsRequest {
     devices?: {
@@ -268,12 +490,25 @@ export interface Credential {
     type: string | null;
     source: string | null;
     file_name: string | null;
+    used: number;
+    hidden: number;
     created_at: string;
     updated_at: string;
 }
 export interface CredentialWithDevice extends Credential {
     device_name: string | null;
     has_file: boolean;
+}
+export interface ActivityLog {
+    id: number;
+    project_id: number | null;
+    project_name: string | null;
+    action: string;
+    resource_type: string;
+    resource_id: number | null;
+    resource_name: string | null;
+    details: string | null;
+    created_at: string;
 }
 export interface CreateCredentialRequest {
     device_id?: number | null;
@@ -284,6 +519,8 @@ export interface CreateCredentialRequest {
     source?: string;
     file_name?: string;
     file_data?: string;
+    used?: number;
+    hidden?: number;
 }
 export interface ProjectStats {
     device_count: number;
@@ -295,6 +532,7 @@ export interface Project {
     id: number;
     name: string;
     slug: string;
+    short_name: string;
     description: string | null;
     about_title: string | null;
     device_count?: number;
@@ -305,12 +543,112 @@ export interface Project {
 export interface CreateProjectRequest {
     name: string;
     slug: string;
+    short_name?: string;
     description?: string;
 }
 export interface UpdateProjectRequest {
     name?: string;
     slug?: string;
+    short_name?: string;
     description?: string;
     about_title?: string;
+}
+export declare const TIMELINE_CATEGORIES: readonly ["general", "decision", "change", "incident", "milestone", "note"];
+export type TimelineCategory = typeof TIMELINE_CATEGORIES[number];
+export declare const TIMELINE_CATEGORY_LABELS: Record<TimelineCategory, string>;
+export interface TimelineEntry {
+    id: number;
+    project_id: number;
+    title: string;
+    description: string | null;
+    event_date: string;
+    category: TimelineCategory;
+    created_at: string;
+    updated_at: string;
+}
+export interface CreateTimelineEntryRequest {
+    title: string;
+    description?: string;
+    event_date?: string;
+    category?: TimelineCategory;
+}
+export interface UpdateTimelineEntryRequest {
+    title?: string;
+    description?: string;
+    event_date?: string;
+    category?: TimelineCategory;
+}
+export declare const AGENT_TYPES: readonly ["wazuh", "zabbix", "elk", "prometheus", "grafana", "nagios", "datadog", "splunk", "ossec", "custom"];
+export type AgentType = typeof AGENT_TYPES[number];
+export declare const AGENT_TYPE_LABELS: Record<AgentType, string>;
+export declare const AGENT_STATUSES: readonly ["active", "inactive", "error", "unknown"];
+export type AgentStatus = typeof AGENT_STATUSES[number];
+export declare const AGENT_STATUS_LABELS: Record<AgentStatus, string>;
+export interface Agent {
+    id: number;
+    project_id: number;
+    name: string;
+    agent_type: AgentType;
+    device_id: number | null;
+    checkin_schedule: string | null;
+    config: string | null;
+    disk_path: string | null;
+    status: string | null;
+    version: string | null;
+    notes: string | null;
+    created_at: string;
+    updated_at: string;
+}
+export interface AgentWithDevice extends Agent {
+    device_name: string | null;
+    device_os: string | null;
+}
+export interface CreateAgentRequest {
+    name: string;
+    agent_type: AgentType;
+    device_id?: number | null;
+    checkin_schedule?: string;
+    config?: string;
+    disk_path?: string;
+    status?: string;
+    version?: string;
+    notes?: string;
+}
+export interface UpdateAgentRequest extends Partial<CreateAgentRequest> {
+    updated_at?: string;
+}
+export interface PcapDiscoveredPort {
+    port: number;
+    protocol: string;
+}
+export interface PcapAnalyzedHost {
+    ip: string;
+    macs: string[];
+    ports: PcapDiscoveredPort[];
+    packetCount: number;
+    matchedDevice: {
+        id: number;
+        name: string;
+        matchType: 'ip' | 'mac';
+    } | null;
+}
+export interface PcapAnalyzeResult {
+    hosts: PcapAnalyzedHost[];
+    totalPackets: number;
+    filename: string;
+}
+export interface PcapApplyAction {
+    ip: string;
+    macs: string[];
+    ports: PcapDiscoveredPort[];
+    action: 'create' | 'merge' | 'skip';
+    mergeDeviceId?: number;
+    newDeviceName?: string;
+    newDeviceType?: DeviceType;
+}
+export interface PcapApplyResult {
+    created: number;
+    merged: number;
+    skipped: number;
 }
 //# sourceMappingURL=types.d.ts.map

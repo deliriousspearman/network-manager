@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Magnifier circle -->
+  <circle cx="54" cy="54" r="34"/>
+  <!-- Handle -->
+  <line x1="80" y1="80" x2="108" y2="108"/>
+  <!-- Inner data points / search results -->
+  <line x1="36" y1="46" x2="72" y2="46"/>
+  <line x1="36" y1="58" x2="64" y2="58"/>
+  <line x1="36" y1="70" x2="68" y2="70"/>
+  <circle cx="30" cy="46" r="2" fill="currentColor"/>
+  <circle cx="30" cy="58" r="2" fill="currentColor"/>
+  <circle cx="30" cy="70" r="2" fill="currentColor"/>
+</svg>

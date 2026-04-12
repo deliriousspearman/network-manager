@@ -4,14 +4,18 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchCredential, createCredential, updateCredential } from '../../api/credentials';
 import { fetchDevices } from '../../api/devices';
 import { useProject } from '../../contexts/ProjectContext';
+import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import { useToast } from '../ui/Toast';
 import { CREDENTIAL_TYPES } from 'shared/types';
+import { formErrorMessage } from '../../utils/formError';
 
 interface Props {
   onClose?: () => void;
   editId?: number;
+  defaultDeviceId?: number;
 }
 
-export default function CredentialForm({ onClose, editId }: Props = {}) {
+export default function CredentialForm({ onClose, editId, defaultDeviceId }: Props = {}) {
   const params = useParams();
   const isModal = !!onClose;
   const id = editId ?? (params.id ? Number(params.id) : undefined);
@@ -19,18 +23,24 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { projectId, project } = useProject();
+  const toast = useToast();
   const base = `/p/${project.slug}`;
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [deviceId, setDeviceId] = useState<number | null>(null);
+  const [deviceId, setDeviceId] = useState<number | null>(defaultDeviceId ?? null);
   const [host, setHost] = useState('');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [type, setType] = useState('');
   const [source, setSource] = useState('');
+  const [used, setUsed] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [existingFileName, setExistingFileName] = useState<string | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Only block navigation for page-mode (not modal)
+  useUnsavedChanges(!isModal && isDirty);
 
   const { data: devices } = useQuery({ queryKey: ['devices', projectId], queryFn: () => fetchDevices(projectId) });
   const { data: credential } = useQuery({
@@ -47,6 +57,7 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
       setPassword(credential.password || '');
       setType(credential.type || '');
       setSource(credential.source || '');
+      setUsed(!!credential.used);
       setExistingFileName(credential.file_name || null);
     }
   }, [credential]);
@@ -87,6 +98,7 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
   };
 
   const done = () => {
+    setIsDirty(false);
     if (isModal) onClose!();
     else navigate(`${base}/credentials`);
   };
@@ -99,6 +111,7 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
       queryClient.invalidateQueries({ queryKey: ['credentials', projectId] });
       done();
     },
+    onError: () => toast('Failed to save credential', 'error'),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -110,6 +123,7 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
       password: password || undefined,
       type: type || undefined,
       source: source || undefined,
+      used: used ? 1 : 0,
     };
 
     if (file) {
@@ -121,11 +135,15 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
       data.file_name = '';
     }
 
+    if (isEdit && credential?.updated_at) {
+      data.updated_at = credential.updated_at;
+    }
+
     mutation.mutate(data);
   };
 
   const formContent = (
-    <form onSubmit={handleSubmit}>
+    <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
       <div className="form-group">
         <label>Device</label>
         <select value={deviceId ?? ''} onChange={handleDeviceChange}>
@@ -210,8 +228,22 @@ export default function CredentialForm({ onClose, editId }: Props = {}) {
         />
       </div>
 
+      <div className="form-group">
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={used}
+            onChange={e => setUsed(e.target.checked)}
+            style={{ width: 'auto', margin: 0 }}
+          />
+          Credential has been used
+        </label>
+      </div>
+
       {mutation.isError && (
-        <div className="error-message">{String(mutation.error)}</div>
+        <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+          {formErrorMessage(mutation.error)}
+        </div>
       )}
 
       <div style={{ display: 'flex', gap: '0.5rem', marginTop: '1rem' }}>

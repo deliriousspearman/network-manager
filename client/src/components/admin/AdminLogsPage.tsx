@@ -1,5 +1,6 @@
-import { useState, useCallback } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useState, useCallback, useEffect } from 'react';
+import { useQuery, keepPreviousData } from '@tanstack/react-query';
+import { Search } from 'lucide-react';
 import { fetchAllActivityLogsPaged } from '../../api/activityLogs';
 import { fetchSettings } from '../../api/settings';
 import type { ActivityLog } from '../../api/activityLogs';
@@ -70,8 +71,10 @@ function renderDetails(log: ActivityLog): string {
 }
 
 export default function AdminLogsPage() {
+  useEffect(() => { document.title = 'Network Manager - Admin Logs'; return () => { document.title = 'Network Manager'; }; }, []);
   const [filterResource, setFilterResource] = useState('');
   const [filterAction, setFilterAction] = useState('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
 
   const handleFilterResource = useCallback((value: string) => {
@@ -84,10 +87,16 @@ export default function AdminLogsPage() {
     setPage(1);
   }, []);
 
+  const handleSearch = useCallback((value: string) => {
+    setSearch(value);
+    setPage(1);
+  }, []);
+
   const { data, isLoading } = useQuery({
-    queryKey: ['admin-logs', 'paged', page, PAGE_LIMIT, filterResource, filterAction],
-    queryFn: () => fetchAllActivityLogsPaged({ page, limit: PAGE_LIMIT, resource_type: filterResource, action: filterAction }),
+    queryKey: ['admin-logs', 'paged', page, PAGE_LIMIT, search, filterResource, filterAction],
+    queryFn: () => fetchAllActivityLogsPaged({ page, limit: PAGE_LIMIT, search, resource_type: filterResource, action: filterAction }),
     staleTime: 10_000,
+    placeholderData: keepPreviousData,
   });
 
   const { data: settings } = useQuery({
@@ -117,6 +126,15 @@ export default function AdminLogsPage() {
       <div className="page-header">
         <h2>Admin Logs</h2>
         <div style={{ display: 'flex', gap: '0.5rem' }}>
+          <div className="diagram-search-wrap">
+            <Search size={14} className="diagram-search-icon" />
+            <input
+              className="diagram-search"
+              value={search}
+              onChange={e => handleSearch(e.target.value)}
+              placeholder="Search"
+            />
+          </div>
           <select value={filterResource} onChange={e => handleFilterResource(e.target.value)} style={selectStyle}>
             <option value="">All resources</option>
             {Object.entries(RESOURCE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}

@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Trash2 } from 'lucide-react';
+import { Trash2, Pencil, Check, X } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { fetchDevicePorts, createDevicePort, updateDevicePort, deleteDevicePort } from '../../api/devicePorts';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 import type { DevicePort } from 'shared/types';
 
 const STATE_STYLES: Record<string, React.CSSProperties> = {
@@ -16,6 +17,7 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
   const { projectId } = useProject();
   const queryClient = useQueryClient();
   const confirm = useConfirmDialog();
+  const toast = useToast();
 
   const [adding, setAdding] = useState(false);
   const [portNumber, setPortNumber] = useState('');
@@ -42,6 +44,7 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
       setService('');
       setAdding(false);
     },
+    onError: () => toast('Failed to save port', 'error'),
   });
 
   const updateMut = useMutation({
@@ -51,11 +54,13 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
       queryClient.invalidateQueries({ queryKey: ['device-ports', projectId, deviceId] });
       setEditingId(null);
     },
+    onError: () => toast('Failed to save port', 'error'),
   });
 
   const deleteMut = useMutation({
     mutationFn: (portId: number) => deleteDevicePort(projectId, deviceId, portId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-ports', projectId, deviceId] }),
+    onError: () => toast('Failed to delete port', 'error'),
   });
 
   function startEdit(port: DevicePort) {
@@ -100,7 +105,7 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Ports</h3>
         {!adding && (
-          <button className="btn btn-secondary btn-sm" onClick={() => { setAdding(true); setEditingId(null); }}>+ Add Port</button>
+          <button className="btn btn-outline" onClick={() => { setAdding(true); setEditingId(null); }}>+ Add Port</button>
         )}
       </div>
 
@@ -113,7 +118,7 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
               <th>Port</th>
               <th>State</th>
               <th>Service</th>
-              <th style={{ width: 96 }}></th>
+              <th style={{ width: 72 }}></th>
             </tr>
           </thead>
           <tbody>
@@ -148,13 +153,16 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
                   </td>
                   <td className="actions">
                     <button
-                      className="btn btn-primary btn-sm"
+                      className="btn btn-primary btn-sm btn-icon"
                       onClick={handleSaveEdit}
                       disabled={updateMut.isPending}
+                      title="Save"
                     >
-                      {updateMut.isPending ? '…' : 'Save'}
+                      {updateMut.isPending ? '…' : <Check size={14} />}
                     </button>
-                    <button className="btn btn-secondary btn-sm" onClick={cancelEdit}>Cancel</button>
+                    <button className="btn btn-secondary btn-sm btn-icon" onClick={cancelEdit} title="Cancel">
+                      <X size={14} />
+                    </button>
                   </td>
                 </tr>
               ) : (
@@ -163,13 +171,15 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
                   <td><span style={STATE_STYLES[port.state] ?? STATE_STYLES.OPEN}>{port.state}</span></td>
                   <td>{port.service || '—'}</td>
                   <td className="actions">
-                    <button className="btn btn-secondary btn-sm" onClick={() => startEdit(port)}>Edit</button>
+                    <button className="btn btn-secondary btn-sm btn-icon" onClick={() => startEdit(port)} title="Edit">
+                      <Pencil size={14} />
+                    </button>
                     <button
-                      className="btn btn-danger btn-sm"
+                      className="btn btn-danger btn-sm btn-icon"
                       onClick={() => handleDelete(port)}
                       title="Delete port"
                     >
-                      <Trash2 size={13} />
+                      <Trash2 size={14} />
                     </button>
                   </td>
                 </tr>

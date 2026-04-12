@@ -1,14 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Bold, Italic, Underline, Strikethrough,
   AlignLeft, AlignCenter, AlignRight,
   List, ListOrdered,
   Heading1, Heading2, Heading3,
   Quote, Code, Pilcrow, Eraser,
-  ChevronDown,
+  ChevronDown, Table,
 } from 'lucide-react';
+import TableContextMenu from './TableContextMenu';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 export function exec(cmd: string, value?: string) {
   document.execCommand(cmd, false, value);
 }
@@ -26,7 +27,11 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
   const [active, setActive] = useState<Set<string>>(new Set());
   const [currentColor, setCurrentColor] = useState('#ef4444');
   const [colorPanelOpen, setColorPanelOpen] = useState(false);
+  const [tablePanelOpen, setTablePanelOpen] = useState(false);
+  const [tableHover, setTableHover] = useState<{ r: number; c: number }>({ r: 0, c: 0 });
+  const [tableMenu, setTableMenu] = useState<{ x: number; y: number; cell: HTMLTableCellElement } | null>(null);
   const colorPickerRef = useRef<HTMLDivElement>(null);
+  const tablePanelRef = useRef<HTMLDivElement>(null);
   const hiddenInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -47,6 +52,33 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [colorPanelOpen]);
+
+  useEffect(() => {
+    if (!tablePanelOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (tablePanelRef.current && !tablePanelRef.current.contains(e.target as Node)) {
+        setTablePanelOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [tablePanelOpen]);
+
+  const handleEditorContextMenu = useCallback((e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    const cell = target.closest('td, th') as HTMLTableCellElement | null;
+    if (cell && editorRef.current?.contains(cell)) {
+      e.preventDefault();
+      setTableMenu({ x: e.clientX, y: e.clientY, cell });
+    }
+  }, [editorRef]);
+
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.addEventListener('contextmenu', handleEditorContextMenu);
+    return () => el.removeEventListener('contextmenu', handleEditorContextMenu);
+  }, [editorRef, handleEditorContextMenu]);
 
   const savedRangeRef = useRef<Range | null>(null);
 
@@ -78,34 +110,46 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
     exec('foreColor', color);
   };
 
+  const insertTable = (rows: number, cols: number) => {
+    setTablePanelOpen(false);
+    focus();
+    const headerCells = Array.from({ length: cols }, (_, i) => `<th>Header ${i + 1}</th>`).join('');
+    const bodyRow = '<td>&nbsp;</td>'.repeat(cols);
+    const bodyRows = Array.from({ length: rows - 1 }, () => `<tr>${bodyRow}</tr>`).join('');
+    const html = `<table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table><p><br></p>`;
+    exec('insertHTML', html);
+  };
+
+  const TABLE_GRID = 6;
+
   return (
     <div className="rich-toolbar">
       {/* Text style */}
       <div className="rich-toolbar-group">
-        <button className={cls('bold')} onMouseDown={prevent} onClick={() => run('bold')} title="Bold"><Bold size={13} /></button>
-        <button className={cls('italic')} onMouseDown={prevent} onClick={() => run('italic')} title="Italic"><Italic size={13} /></button>
-        <button className={cls('underline')} onMouseDown={prevent} onClick={() => run('underline')} title="Underline"><Underline size={13} /></button>
-        <button className={cls('strikeThrough')} onMouseDown={prevent} onClick={() => run('strikeThrough')} title="Strikethrough"><Strikethrough size={13} /></button>
+        <button type="button" className={cls('bold')} onMouseDown={prevent} onClick={() => run('bold')} title="Bold"><Bold size={13} /></button>
+        <button type="button" className={cls('italic')} onMouseDown={prevent} onClick={() => run('italic')} title="Italic"><Italic size={13} /></button>
+        <button type="button" className={cls('underline')} onMouseDown={prevent} onClick={() => run('underline')} title="Underline"><Underline size={13} /></button>
+        <button type="button" className={cls('strikeThrough')} onMouseDown={prevent} onClick={() => run('strikeThrough')} title="Strikethrough"><Strikethrough size={13} /></button>
       </div>
 
       <div className="rich-toolbar-sep" />
 
       {/* Block formats */}
       <div className="rich-toolbar-group">
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'h1')} title="Heading 1"><Heading1 size={13} /></button>
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'h2')} title="Heading 2"><Heading2 size={13} /></button>
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'h3')} title="Heading 3"><Heading3 size={13} /></button>
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'blockquote')} title="Blockquote"><Quote size={13} /></button>
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'pre')} title="Code block"><Code size={13} /></button>
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'p')} title="Normal paragraph"><Pilcrow size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'h1')} title="Heading 1"><Heading1 size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'h2')} title="Heading 2"><Heading2 size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'h3')} title="Heading 3"><Heading3 size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'blockquote')} title="Blockquote"><Quote size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'pre')} title="Code block"><Code size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('formatBlock', 'p')} title="Normal paragraph"><Pilcrow size={13} /></button>
       </div>
 
       <div className="rich-toolbar-sep" />
 
       {/* Lists */}
       <div className="rich-toolbar-group">
-        <button className={cls('insertUnorderedList')} onMouseDown={prevent} onClick={() => run('insertUnorderedList')} title="Bullet list"><List size={13} /></button>
-        <button className={cls('insertOrderedList')} onMouseDown={prevent} onClick={() => run('insertOrderedList')} title="Numbered list"><ListOrdered size={13} /></button>
+        <button type="button" className={cls('insertUnorderedList')} onMouseDown={prevent} onClick={() => run('insertUnorderedList')} title="Bullet list"><List size={13} /></button>
+        <button type="button" className={cls('insertOrderedList')} onMouseDown={prevent} onClick={() => run('insertOrderedList')} title="Numbered list"><ListOrdered size={13} /></button>
       </div>
 
       <div className="rich-toolbar-sep" />
@@ -136,6 +180,7 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
       <div className="rich-toolbar-group">
         <div className="rich-tb-colorpicker" ref={colorPickerRef}>
           <button
+            type="button"
             className="rich-tb-colorpicker-btn"
             onMouseDown={prevent}
             onClick={() => { focus(); exec('foreColor', currentColor); }}
@@ -145,6 +190,7 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
             <span className="rich-tb-color-bar" style={{ backgroundColor: currentColor }} />
           </button>
           <button
+            type="button"
             className="rich-tb-colorpicker-arrow"
             onMouseDown={prevent}
             onClick={() => setColorPanelOpen(o => !o)}
@@ -158,6 +204,7 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
                 {PRESET_COLORS.map(c => (
                   <button
                     key={c}
+                    type="button"
                     className="rich-tb-colorpicker-swatch"
                     style={{ backgroundColor: c }}
                     onMouseDown={prevent}
@@ -168,6 +215,7 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
               </div>
               <div className="rich-tb-colorpicker-more">
                 <button
+                  type="button"
                   className="rich-tb-colorpicker-more-btn"
                   onMouseDown={prevent}
                   onClick={() => { setColorPanelOpen(false); hiddenInputRef.current?.click(); }}
@@ -191,17 +239,60 @@ export function RichToolbar({ editorRef }: { editorRef: React.RefObject<HTMLDivE
 
       {/* Alignment */}
       <div className="rich-toolbar-group">
-        <button className={cls('justifyLeft')} onMouseDown={prevent} onClick={() => run('justifyLeft')} title="Align left"><AlignLeft size={13} /></button>
-        <button className={cls('justifyCenter')} onMouseDown={prevent} onClick={() => run('justifyCenter')} title="Align centre"><AlignCenter size={13} /></button>
-        <button className={cls('justifyRight')} onMouseDown={prevent} onClick={() => run('justifyRight')} title="Align right"><AlignRight size={13} /></button>
+        <button type="button" className={cls('justifyLeft')} onMouseDown={prevent} onClick={() => run('justifyLeft')} title="Align left"><AlignLeft size={13} /></button>
+        <button type="button" className={cls('justifyCenter')} onMouseDown={prevent} onClick={() => run('justifyCenter')} title="Align centre"><AlignCenter size={13} /></button>
+        <button type="button" className={cls('justifyRight')} onMouseDown={prevent} onClick={() => run('justifyRight')} title="Align right"><AlignRight size={13} /></button>
+      </div>
+
+      <div className="rich-toolbar-sep" />
+
+      {/* Table */}
+      <div className="rich-toolbar-group">
+        <div className="rich-tb-tablepicker" ref={tablePanelRef}>
+          <button
+            className="rich-tb-btn"
+            onMouseDown={prevent}
+            onClick={() => setTablePanelOpen(o => !o)}
+            title="Insert table"
+          >
+            <Table size={13} />
+          </button>
+          {tablePanelOpen && (
+            <div className="rich-tb-tablepicker-panel">
+              <div className="rich-tb-tablepicker-label">{tableHover.r > 0 ? `${tableHover.r} × ${tableHover.c}` : 'Select size'}</div>
+              <div className="rich-tb-tablepicker-grid">
+                {Array.from({ length: TABLE_GRID }, (_, r) =>
+                  Array.from({ length: TABLE_GRID }, (_, c) => (
+                    <button
+                      key={`${r}-${c}`}
+                      type="button"
+                      className={`rich-tb-tablepicker-cell${r < tableHover.r && c < tableHover.c ? ' rich-tb-tablepicker-cell--active' : ''}`}
+                      onMouseEnter={() => setTableHover({ r: r + 1, c: c + 1 })}
+                      onMouseDown={prevent}
+                      onClick={() => insertTable(r + 1, c + 1)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="rich-toolbar-sep" />
 
       {/* Clear all formatting */}
       <div className="rich-toolbar-group">
-        <button className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('removeFormat')} title="Clear formatting"><Eraser size={13} /></button>
+        <button type="button" className="rich-tb-btn" onMouseDown={prevent} onClick={() => run('removeFormat')} title="Clear formatting"><Eraser size={13} /></button>
       </div>
+
+      {tableMenu && (
+        <TableContextMenu
+          position={{ x: tableMenu.x, y: tableMenu.y }}
+          cell={tableMenu.cell}
+          onClose={() => setTableMenu(null)}
+        />
+      )}
     </div>
   );
 }

@@ -1,15 +1,17 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { X, ChevronLeft, ChevronRight, Trash2, Upload } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { fetchDeviceImages, uploadDeviceImage, deleteDeviceImage, imageUrl } from '../../api/deviceImages';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
+import { useToast } from '../ui/Toast';
 import type { DeviceImage } from 'shared/types';
 
 export default function ImageGallerySection({ deviceId }: { deviceId: number }) {
   const { projectId } = useProject();
   const queryClient = useQueryClient();
   const confirm = useConfirmDialog();
+  const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [slideIndex, setSlideIndex] = useState<number | null>(null);
 
@@ -22,6 +24,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
     mutationFn: (payload: { filename: string; mime_type: string; data: string }) =>
       uploadDeviceImage(projectId, deviceId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-images', projectId, deviceId] }),
+    onError: () => toast('Failed to upload image', 'error'),
   });
 
   const deleteMut = useMutation({
@@ -30,6 +33,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
       queryClient.invalidateQueries({ queryKey: ['device-images', projectId, deviceId] });
       setSlideIndex(null);
     },
+    onError: () => toast('Failed to delete image', 'error'),
   });
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -47,7 +51,15 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
   }
 
   const openSlide = (idx: number) => setSlideIndex(idx);
-  const closeSlide = () => setSlideIndex(null);
+  const closeSlide = useCallback(() => setSlideIndex(null), []);
+  const prevSlide = useCallback(
+    () => setSlideIndex(i => (i != null ? (i - 1 + images.length) % images.length : 0)),
+    [images.length],
+  );
+  const nextSlide = useCallback(
+    () => setSlideIndex(i => (i != null ? (i + 1) % images.length : 0)),
+    [images.length],
+  );
 
   useEffect(() => {
     if (slideIndex === null) return;
@@ -58,9 +70,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [slideIndex]);
-  const prevSlide = () => setSlideIndex(i => (i != null ? (i - 1 + images.length) % images.length : 0));
-  const nextSlide = () => setSlideIndex(i => (i != null ? (i + 1) % images.length : 0));
+  }, [slideIndex, closeSlide, prevSlide, nextSlide]);
 
   async function handleDelete(img: DeviceImage) {
     if (await confirm(`Delete "${img.filename}"?`)) {
@@ -73,7 +83,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
         <h3 style={{ fontSize: '1rem', margin: 0 }}>Image Gallery</h3>
         <button
-          className="btn btn-secondary btn-sm"
+          className="btn btn-outline"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploadMut.isPending}
         >

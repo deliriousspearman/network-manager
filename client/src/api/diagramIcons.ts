@@ -32,6 +32,32 @@ export async function deleteTypeDefault(projectId: number, deviceType: string): 
   if (!res.ok) await throwApiError(res, 'Failed to delete type default icon');
 }
 
+// ── Agent type default icons ─────────────────────────────────
+
+export async function fetchAgentTypeDefaults(projectId: number): Promise<{ id: number; agent_type: string; filename: string }[]> {
+  const res = await fetch(`${base(projectId)}/agent-type-defaults`);
+  if (!res.ok) await throwApiError(res, 'Failed to fetch agent type default icons');
+  return res.json();
+}
+
+export function agentTypeDefaultIconUrl(projectId: number, agentType: string): string {
+  return `${base(projectId)}/agent-type-defaults/${agentType}/image`;
+}
+
+export async function uploadAgentTypeDefault(projectId: number, agentType: string, payload: { filename: string; mime_type: string; data: string }): Promise<void> {
+  const res = await fetch(`${base(projectId)}/agent-type-defaults/${agentType}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await throwApiError(res, 'Failed to upload agent type default icon');
+}
+
+export async function deleteAgentTypeDefault(projectId: number, agentType: string): Promise<void> {
+  const res = await fetch(`${base(projectId)}/agent-type-defaults/${agentType}`, { method: 'DELETE' });
+  if (!res.ok) await throwApiError(res, 'Failed to delete agent type default icon');
+}
+
 // ── Per-device icon overrides ────────────────────────────────
 
 export function deviceIconOverrideUrl(projectId: number, deviceId: number): string {

@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
-import { optionalString } from '../validation.js';
+import { optionalString, verifyDeviceOwnership, verifySubnetOwnership } from '../validation.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
 import type { CreateConnectionRequest } from 'shared/types.js';
 
 const router = Router({ mergeParams: true });
 
-router.get('/', (_req, res) => {
+router.get('/', asyncHandler((_req, res) => {
   const projectId = res.locals.projectId;
   const connections = db.prepare(
     `SELECT c.*,
@@ -21,20 +22,35 @@ router.get('/', (_req, res) => {
      ORDER BY c.created_at DESC`
   ).all(projectId);
   res.json(connections);
-});
+}));
 
-router.post('/', (req, res) => {
+router.post('/', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
   const { source_device_id, target_device_id, label, connection_type, source_handle, target_handle, source_port, target_port, edge_type, edge_color, edge_width } = req.body as CreateConnectionRequest;
   const source_subnet_id = req.body.source_subnet_id ?? null;
   const target_subnet_id = req.body.target_subnet_id ?? null;
+
+  // Verify all referenced entities belong to this project
+  if (source_device_id && !verifyDeviceOwnership(source_device_id, projectId)) {
+    return res.status(400).json({ error: 'Source device not found in this project' });
+  }
+  if (target_device_id && !verifyDeviceOwnership(target_device_id, projectId)) {
+    return res.status(400).json({ error: 'Target device not found in this project' });
+  }
+  if (source_subnet_id && !verifySubnetOwnership(source_subnet_id, projectId)) {
+    return res.status(400).json({ error: 'Source subnet not found in this project' });
+  }
+  if (target_subnet_id && !verifySubnetOwnership(target_subnet_id, projectId)) {
+    return res.status(400).json({ error: 'Target subnet not found in this project' });
+  }
+
   const result = db.prepare(
     'INSERT INTO connections (source_device_id, target_device_id, source_subnet_id, target_subnet_id, label, connection_type, edge_type, edge_color, edge_width, project_id, source_handle, target_handle, source_port, target_port) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
   ).run(
     source_device_id ?? null, target_device_id ?? null,
     source_subnet_id, target_subnet_id,
     optionalString(label, 500), optionalString(connection_type, 50) ?? 'ethernet',
-    optionalString(edge_type, 50), optionalString(edge_color, 50), edge_width != null ? Number(edge_width) : null,
+    optionalString(edge_type, 50) ?? 'default', optionalString(edge_color, 50), edge_width != null ? Number(edge_width) : null,
     projectId,
     optionalString(source_handle, 100), optionalString(target_handle, 100),
     optionalString(source_port, 100), optionalString(target_port, 100),
@@ -55,9 +71,9 @@ router.post('/', (req, res) => {
     : '?';
   logActivity({ projectId, action: 'created', resourceType: 'connection', resourceId: result.lastInsertRowid as number, resourceName: `${srcName} → ${tgtName}` });
   res.status(201).json(connection);
-});
+}));
 
-router.put('/:id', (req, res) => {
+router.put('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
   const existing = db.prepare('SELECT * FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as any;
   if (!existing) return res.status(404).json({ error: 'Connection not found' });
@@ -80,9 +96,9 @@ router.put('/:id', (req, res) => {
 
   const connection = db.prepare('SELECT * FROM connections WHERE id = ?').get(req.params.id);
   res.json(connection);
-});
+}));
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
   const existing = db.prepare('SELECT id FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
   if (!existing) return res.status(404).json({ error: 'Connection not found' });
@@ -104,6 +120,6 @@ router.delete('/:id', (req, res) => {
   db.prepare('DELETE FROM connections WHERE id = ? AND project_id = ?').run(req.params.id, projectId);
   logActivity({ projectId, action: 'deleted', resourceType: 'connection', resourceId: Number(req.params.id), resourceName: `${srcName} → ${tgtName}` });
   res.status(204).send();
-});
+}));
 
 export default router;
