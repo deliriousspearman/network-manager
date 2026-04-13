@@ -2,11 +2,10 @@ import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
 import { ValidationError, requireString, optionalString, optionalOneOf } from '../validation.js';
-import { TIMELINE_CATEGORIES } from 'shared/types';
 
 const router = Router({ mergeParams: true });
 
-const VALID_CATEGORIES = TIMELINE_CATEGORIES as readonly string[];
+const VALID_CATEGORIES = ['general', 'decision', 'change', 'incident', 'milestone', 'note'] as const;
 
 function validateEventDate(val: unknown): string | null {
   if (val === undefined || val === null || val === '') return null;
@@ -26,7 +25,7 @@ router.get('/', (req, res) => {
 
   let filterClause = '';
   const filterParams: unknown[] = [];
-  if (category && VALID_CATEGORIES.includes(category)) {
+  if (category && (VALID_CATEGORIES as readonly string[]).includes(category)) {
     filterClause += ' AND category = ?';
     filterParams.push(category);
   }
