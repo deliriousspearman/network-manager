@@ -65,25 +65,25 @@ app.use(helmet({
   // (browsers ignore the header on plain HTTP).
 }));
 
-// CORS: restrict to known origins (configurable via ALLOWED_ORIGINS env var)
+// CORS: in production, allow all origins since the client is served from the
+// same Express server (same-origin). In development, restrict to known dev
+// server origins (configurable via ALLOWED_ORIGINS env var).
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-  : null; // null = use default list below
-const defaultOrigins = ['http://localhost:5173', 'http://localhost:8080', 'http://localhost:3001'];
+  : null;
+const defaultDevOrigins = ['http://localhost:5173', 'http://localhost:8080', 'http://localhost:3001'];
 app.use(cors({
   origin: (origin, callback) => {
-    // Requests with no Origin header (server-to-server, curl, same-origin fetches).
-    // In production these should be rejected unless ALLOW_NO_ORIGIN=1 is explicitly set,
-    // so we don't silently accept non-browser clients as a backdoor around the allowlist.
-    // In development we permit them so local tools (curl, tests) still work out of the box.
+    // No origin header (same-origin, curl, server-to-server) — always allow
     if (!origin) {
-      if (!isProduction || process.env.ALLOW_NO_ORIGIN === '1') {
-        return callback(null, true);
-      }
-      return callback(new Error('Not allowed by CORS: missing origin'));
+      return callback(null, true);
     }
-    const origins = allowedOrigins || defaultOrigins;
-    // Check exact match or wildcard subdomain patterns
+    // Production: client is served by Express on the same port, so any
+    // origin reaching this server is legitimate (IP, hostname, domain)
+    if (isProduction && !allowedOrigins) {
+      return callback(null, true);
+    }
+    const origins = allowedOrigins || defaultDevOrigins;
     if (origins.some(o => o === origin || (o.startsWith('*.') && origin.endsWith(o.slice(1))))) {
       callback(null, true);
     } else {
