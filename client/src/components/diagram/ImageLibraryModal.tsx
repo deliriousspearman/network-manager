@@ -1,11 +1,10 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
+import { useState, useCallback, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Upload, Plus, Trash2 } from 'lucide-react';
 import { fetchImageLibrary, imageLibraryImageUrl, fetchImageLibraryData, uploadImageToLibrary, deleteImageFromLibrary } from '../../api/imageLibrary';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/Toast';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import Modal from '../ui/Modal';
 
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
 const MAX_SIZE = 2 * 1024 * 1024; // 2MB
@@ -36,16 +35,6 @@ export default function ImageLibraryModal({ projectId, open, onClose, onPlaceIma
     queryFn: () => fetchImageLibrary(projectId),
     enabled: open,
   });
-
-  // Escape key closes modal
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [open, onClose]);
 
   const handleUpload = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -104,49 +93,18 @@ export default function ImageLibraryModal({ projectId, open, onClose, onPlaceIma
     }
   }, [projectId, queryClient, confirm, toast]);
 
-  if (!open) return null;
-
-  return createPortal(
-    <div className="confirm-overlay" onClick={onClose}>
-      <ImageLibraryInner
-        onClose={onClose}
-        projectId={projectId}
-        images={images}
-        isLoading={isLoading}
-        uploading={uploading}
-        placingId={placingId}
-        fileInputRef={fileInputRef}
-        handleUpload={handleUpload}
-        handlePlace={handlePlace}
-        handleDelete={handleDelete}
-      />
-    </div>,
-    document.body
-  );
-}
-
-interface InnerProps {
-  onClose: () => void;
-  projectId: number;
-  images: Awaited<ReturnType<typeof fetchImageLibrary>> | undefined;
-  isLoading: boolean;
-  uploading: boolean;
-  placingId: number | null;
-  fileInputRef: React.RefObject<HTMLInputElement>;
-  handleUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  handlePlace: (id: number) => void;
-  handleDelete: (id: number) => void;
-}
-
-function ImageLibraryInner({ onClose, projectId, images, isLoading, uploading, placingId, fileInputRef, handleUpload, handlePlace, handleDelete }: InnerProps) {
-  const trapRef = useFocusTrap<HTMLDivElement>();
   return (
-    <div className="confirm-dialog image-library-modal" ref={trapRef} onClick={e => e.stopPropagation()}>
-      <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>Image Library</span>
-        <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
-      </div>
-
+    <Modal
+      open={open}
+      onClose={onClose}
+      className="image-library-modal"
+      title={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>Image Library</span>
+          <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
+        </div>
+      }
+    >
       <div className="image-library-upload-area">
         <button className="btn btn-primary btn-sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           <Upload size={14} style={{ marginRight: 4 }} />
@@ -195,6 +153,6 @@ function ImageLibraryInner({ onClose, projectId, images, isLoading, uploading, p
           ))}
         </div>
       )}
-    </div>
+    </Modal>
   );
 }

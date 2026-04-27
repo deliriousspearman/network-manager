@@ -44,7 +44,7 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
       setService('');
       setAdding(false);
     },
-    onError: () => toast('Failed to save port', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to save port', 'error'),
   });
 
   const updateMut = useMutation({
@@ -54,13 +54,13 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
       queryClient.invalidateQueries({ queryKey: ['device-ports', projectId, deviceId] });
       setEditingId(null);
     },
-    onError: () => toast('Failed to save port', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to save port', 'error'),
   });
 
   const deleteMut = useMutation({
     mutationFn: (portId: number) => deleteDevicePort(projectId, deviceId, portId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-ports', projectId, deviceId] }),
-    onError: () => toast('Failed to delete port', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete port', 'error'),
   });
 
   function startEdit(port: DevicePort) {
@@ -156,11 +156,11 @@ export default function DevicePortsSection({ deviceId }: { deviceId: number }) {
                       className="btn btn-primary btn-sm btn-icon"
                       onClick={handleSaveEdit}
                       disabled={updateMut.isPending}
-                      title="Save"
+                      title="Save" aria-label="Save"
                     >
                       {updateMut.isPending ? '…' : <Check size={14} />}
                     </button>
-                    <button className="btn btn-secondary btn-sm btn-icon" onClick={cancelEdit} title="Cancel">
+                    <button className="btn btn-secondary btn-sm btn-icon" onClick={cancelEdit} title="Cancel" aria-label="Cancel">
                       <X size={14} />
                     </button>
                   </td>

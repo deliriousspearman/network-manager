@@ -3,30 +3,25 @@ import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { truncateLabel } from './truncateLabel';
 import { FavouriteStar } from './FavouriteStar';
 import { CredentialKey } from './CredentialKey';
+import IconRenderer from '../../ui/IconRenderer';
 
-import serverIcon from '../../../assets/device-icons/server.svg?url';
-import workstationIcon from '../../../assets/device-icons/workstation.svg?url';
-import routerIcon from '../../../assets/device-icons/router.svg?url';
-import switchIcon from '../../../assets/device-icons/switch.svg?url';
-import nasIcon from '../../../assets/device-icons/nas.svg?url';
-import firewallIcon from '../../../assets/device-icons/firewall.svg?url';
-import accessPointIcon from '../../../assets/device-icons/access_point.svg?url';
 import iotIcon from '../../../assets/device-icons/iot.svg?url';
-import cameraIcon from '../../../assets/device-icons/camera.svg?url';
-import phoneIcon from '../../../assets/device-icons/phone.svg?url';
-import hypervisorIcon from '../../../assets/device-icons/hypervisor.svg?url';
+import { libraryIconUrl } from '../../../iconLibraries/manifest';
 
+// Default icon per device type. Most types map to the bundled "Networking
+// (legacy)" drawio library at /icon-libraries/network2018/*.svg. iot has no
+// clean network2018 match so it keeps the bundled SVG.
 const DEFAULT_DEVICE_ICONS: Record<string, string> = {
-  server: serverIcon,
-  workstation: workstationIcon,
-  router: routerIcon,
-  switch: switchIcon,
-  nas: nasIcon,
-  firewall: firewallIcon,
-  access_point: accessPointIcon,
-  iot: iotIcon,
-  camera: cameraIcon,
-  phone: phoneIcon,
+  server:       libraryIconUrl('network2018', 'server'),
+  workstation:  libraryIconUrl('network2018', 'pc'),
+  router:       libraryIconUrl('network2018', 'router'),
+  switch:       libraryIconUrl('network2018', 'switch'),
+  nas:          libraryIconUrl('network2018', 'storage'),
+  firewall:     libraryIconUrl('network2018', 'firewall'),
+  access_point: libraryIconUrl('network2018', 'wireless_modem'),
+  camera:       libraryIconUrl('network2018', 'camera'),
+  phone:        libraryIconUrl('network2018', 'mobile'),
+  iot:          iotIcon,
 };
 
 const CLASS_MAP: Record<string, string> = {
@@ -52,6 +47,8 @@ function DeviceNode({ data }: NodeProps) {
   const d = data as {
     label: string;
     ip: string;
+    ips?: { ip_address: string; label?: string | null; is_primary?: number | boolean; dhcp?: number | boolean }[];
+    primaryIpOnly?: boolean;
     deviceType: string;
     os?: string;
     hostingType?: string;
@@ -61,6 +58,7 @@ function DeviceNode({ data }: NodeProps) {
     customIcon?: string | null;
     iconOverrideUrl?: string | null;
     typeDefaultIconUrl?: string | null;
+    iconColor?: string | null;
     favourite?: boolean;
     hideHandles?: boolean;
     hasCredentials?: boolean;
@@ -73,13 +71,27 @@ function DeviceNode({ data }: NodeProps) {
     showAgents?: boolean;
   };
   const vmClass = d.hostingType === 'vm' ? ' node-vm' : '';
-  const defaultIcon = d.hostingType === 'hypervisor' ? hypervisorIcon : DEFAULT_DEVICE_ICONS[d.deviceType];
+  const defaultIcon = d.hostingType === 'hypervisor'
+    ? libraryIconUrl('network2018', 'mainframe')
+    : DEFAULT_DEVICE_ICONS[d.deviceType];
   const iconSrc = d.iconOverrideUrl || d.typeDefaultIconUrl || defaultIcon;
 
   const style: React.CSSProperties = {};
   if (d.borderColor) style.borderColor = d.borderColor;
   if (d.bgColor) style.backgroundColor = d.bgColor;
   const labelStyle: React.CSSProperties = d.labelColor ? { color: d.labelColor } : {};
+
+  // IPs to render. Default: all IPs (primary first), each on its own line.
+  // primaryIpOnly: just d.ip (the server-resolved primary). When the device
+  // has no IPs at all, show the "No IP" placeholder.
+  const ipsToShow: string[] = (() => {
+    if (d.primaryIpOnly) return d.ip ? [d.ip] : [];
+    if (d.ips && d.ips.length > 0) {
+      const sorted = [...d.ips].sort((a, b) => Number(b.is_primary ?? 0) - Number(a.is_primary ?? 0));
+      return sorted.map(ip => ip.ip_address);
+    }
+    return d.ip ? [d.ip] : [];
+  })();
 
   return (
     <div className={`device-node ${CLASS_MAP[d.deviceType] || ''}${vmClass}${d.hideHandles ? ' hide-handles' : ''}`} style={style}>
@@ -107,11 +119,21 @@ function DeviceNode({ data }: NodeProps) {
       <div className="node-icon">
         {d.customIcon
           ? d.customIcon
-          : <img src={iconSrc} alt={d.deviceType} width={64} height={64} style={{ objectFit: 'contain' }} draggable={false} />
+          : <IconRenderer src={iconSrc} color={d.iconColor ?? null} size={64} alt={d.deviceType} />
         }
       </div>
       <div className="node-label" style={labelStyle} title={d.label}>{truncateLabel(d.label)}</div>
-      <div className="node-ip" style={labelStyle}>{d.ip || 'No IP'}</div>
+      {ipsToShow.length === 0 ? (
+        <div className="node-ip" style={labelStyle}>No IP</div>
+      ) : ipsToShow.length === 1 ? (
+        <div className="node-ip" style={labelStyle}>{ipsToShow[0]}</div>
+      ) : (
+        <div className="node-ips" style={labelStyle}>
+          {ipsToShow.map((ip, i) => (
+            <div key={i} className="node-ip">{ip}</div>
+          ))}
+        </div>
+      )}
       {d.hostingType && <div className="node-hosting-tag">{HOSTING_SHORT[d.hostingType] || ''}</div>}
       {/* Top: left, center, right */}
       <Handle id="top-l-t" type="target" position={Position.Top} style={{ left: '25%' }} />

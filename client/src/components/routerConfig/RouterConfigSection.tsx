@@ -26,6 +26,7 @@ import RouterAclsTable from './RouterAclsTable';
 import RouterNatTable from './RouterNatTable';
 import RouterDhcpPoolsTable from './RouterDhcpPoolsTable';
 import RouterUsersTable from './RouterUsersTable';
+import RouterConfigDiffModal from './RouterConfigDiffModal';
 
 const PARSED_VENDORS: RouterVendor[] = ['cisco'];
 
@@ -78,6 +79,7 @@ export default function RouterConfigSection({ deviceId }: { deviceId: number }) 
   const [newRaw, setNewRaw] = useState('');
   const [newParse, setNewParse] = useState(true);
 
+  const [showDiff, setShowDiff] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [editRaw, setEditRaw] = useState('');
   const [editCapturedAt, setEditCapturedAt] = useState('');
@@ -124,7 +126,7 @@ export default function RouterConfigSection({ deviceId }: { deviceId: number }) 
         setSelectedConfigId(remaining.length > 0 ? remaining[0].id : null);
       }
     },
-    onError: () => toast('Failed to delete router config', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete router config', 'error'),
   });
 
   const toggleParseMut = useMutation({
@@ -214,6 +216,14 @@ export default function RouterConfigSection({ deviceId }: { deviceId: number }) 
             >
               Delete
             </button>
+            {(configs ?? []).length >= 2 && (
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => setShowDiff(true)}
+              >
+                Diff
+              </button>
+            )}
           </>
         ) : (
           <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.875rem' }}>
@@ -401,6 +411,13 @@ export default function RouterConfigSection({ deviceId }: { deviceId: number }) 
             </pre>
           )}
         </>
+      )}
+      {showDiff && configs && configs.length >= 2 && (
+        <RouterConfigDiffModal
+          configs={configs}
+          projectId={projectId}
+          onClose={() => setShowDiff(false)}
+        />
       )}
     </div>
   );

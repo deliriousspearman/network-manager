@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Cloud outline: three bumps over a flat base -->
+  <path d="M 36 92
+           C 18 92 12 76 22 66
+           C 18 50 38 42 50 52
+           C 56 36 82 36 88 54
+           C 108 52 116 76 100 88
+           C 96 92 90 92 84 92
+           Z"/>
+</svg>

@@ -23,8 +23,10 @@ router.post('/', asyncHandler((req, res) => {
       'INSERT INTO device_subnets (device_id, subnet_id) VALUES (?, ?)'
     ).run(device_id, subnet_id);
     res.status(201).json({ device_id, subnet_id });
-  } catch (err: any) {
-    if (err?.code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || err?.message?.includes('UNIQUE') || err?.message?.includes('PRIMARY KEY')) {
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    const msg = err instanceof Error ? err.message : '';
+    if (code === 'SQLITE_CONSTRAINT_PRIMARYKEY' || msg.includes('UNIQUE') || msg.includes('PRIMARY KEY')) {
       res.status(409).json({ error: 'Membership already exists' });
     } else {
       throw err;

@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
+import Modal from '../ui/Modal';
+import ImportErrorList from '../ui/ImportErrorList';
 import { useProject } from '../../contexts/ProjectContext';
 import { previewCsvImport, applyCsvImport, csvTemplateUrl, type CsvPreviewRow, type CsvImportResult } from '../../api/deviceCsvImport';
 
@@ -17,7 +17,6 @@ export default function CsvImportModal({ onClose, onImported }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
-  const trapRef = useFocusTrap();
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -60,19 +59,17 @@ export default function CsvImportModal({ onClose, onImported }: Props) {
     }
   };
 
-  return createPortal(
-    <div className="confirm-overlay" onClick={onClose}>
-      <div
-        className="confirm-dialog"
-        ref={trapRef}
-        onClick={e => e.stopPropagation()}
-        style={{ maxWidth: 700, width: '90vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
-      >
-        <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+  return (
+    <Modal
+      onClose={onClose}
+      style={{ maxWidth: 700, width: '90vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+      title={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>Import Devices from CSV</span>
           <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
         </div>
-
+      }
+    >
         <div style={{ flex: 1, overflow: 'auto', marginBottom: '0.75rem' }}>
           {!result ? (
             <>
@@ -96,11 +93,11 @@ export default function CsvImportModal({ onClose, onImported }: Props) {
                 <input ref={fileRef} type="file" accept=".csv,.txt" style={{ display: 'none' }} onChange={handleFileUpload} />
               </div>
               <textarea
+                className="code-textarea"
                 value={csvText}
                 onChange={e => { setCsvText(e.target.value); setPreview(null); }}
                 rows={6}
                 placeholder={'name,type,ip_address,mac_address,os,hostname,domain,location,tags\nWeb Server,server,192.168.1.10,,,web01,,,production'}
-                style={{ width: '100%', fontFamily: 'monospace', fontSize: '0.8rem' }}
               />
 
               {preview && preview.length > 0 && (
@@ -141,12 +138,8 @@ export default function CsvImportModal({ onClose, onImported }: Props) {
                 Import complete: {result.created} device{result.created !== 1 ? 's' : ''} created
                 {result.skipped > 0 && `, ${result.skipped} skipped`}
               </p>
-              {result.errors.length > 0 && (
-                <div style={{ textAlign: 'left', marginTop: '0.75rem', fontSize: '0.8rem', color: 'var(--color-danger)' }}>
-                  {result.errors.slice(0, 10).map((e, i) => <div key={i}>{e}</div>)}
-                  {result.errors.length > 10 && <div>... and {result.errors.length - 10} more</div>}
-                </div>
-              )}
+              <ImportErrorList errors={result.errors} />
+
             </div>
           )}
 
@@ -171,8 +164,6 @@ export default function CsvImportModal({ onClose, onImported }: Props) {
             </>
           )}
         </div>
-      </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

@@ -24,7 +24,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
     mutationFn: (payload: { filename: string; mime_type: string; data: string }) =>
       uploadDeviceImage(projectId, deviceId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-images', projectId, deviceId] }),
-    onError: () => toast('Failed to upload image', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to upload image', 'error'),
   });
 
   const deleteMut = useMutation({
@@ -33,7 +33,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
       queryClient.invalidateQueries({ queryKey: ['device-images', projectId, deviceId] });
       setSlideIndex(null);
     },
-    onError: () => toast('Failed to delete image', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete image', 'error'),
   });
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -148,7 +148,7 @@ export default function ImageGallerySection({ deviceId }: { deviceId: number }) 
               >
                 <Trash2 size={14} />
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={closeSlide} title="Close">
+              <button className="btn btn-secondary btn-sm" onClick={closeSlide} title="Close" aria-label="Close">
                 <X size={14} />
               </button>
             </div>

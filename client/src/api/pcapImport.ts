@@ -1,4 +1,4 @@
-import type { PcapAnalyzeResult, PcapApplyAction, PcapApplyResult } from 'shared/types';
+import type { PcapAnalyzeResult, PcapApplyAction, PcapApplyResult, NmapAnalyzeResult, NmapApplyAction, NmapApplyResult } from 'shared/types';
 import { projectBase } from './base';
 import { throwApiError } from '../utils/apiError';
 
@@ -38,5 +38,31 @@ export async function applyPcapActions(
     body: JSON.stringify({ actions }),
   });
   if (!res.ok) await throwApiError(res, 'Failed to apply import');
+  return res.json();
+}
+
+export async function analyzeNmap(
+  projectId: number,
+  payload: { filename: string; text: string },
+): Promise<NmapAnalyzeResult> {
+  const res = await fetch(`${projectBase(projectId, 'import')}/nmap/analyze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await throwApiError(res, 'Failed to analyze Nmap file');
+  return res.json();
+}
+
+export async function applyNmapActions(
+  projectId: number,
+  actions: NmapApplyAction[],
+): Promise<NmapApplyResult> {
+  const res = await fetch(`${projectBase(projectId, 'import')}/nmap/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actions }),
+  });
+  if (!res.ok) await throwApiError(res, 'Failed to apply Nmap import');
   return res.json();
 }

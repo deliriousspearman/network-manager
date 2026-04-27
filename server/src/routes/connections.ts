@@ -3,6 +3,7 @@ import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
 import { optionalString, verifyDeviceOwnership, verifySubnetOwnership } from '../validation.js';
 import { asyncHandler } from '../middleware/asyncHandler.js';
+import { publishSafe } from '../events/bus.js';
 import type { CreateConnectionRequest } from 'shared/types.js';
 
 const router = Router({ mergeParams: true });
@@ -70,13 +71,18 @@ router.post('/', asyncHandler((req, res) => {
     ? (db.prepare('SELECT name FROM subnets WHERE id = ?').get(target_subnet_id) as { name: string } | undefined)?.name
     : '?';
   logActivity({ projectId, action: 'created', resourceType: 'connection', resourceId: result.lastInsertRowid as number, resourceName: `${srcName} → ${tgtName}` });
+  publishSafe(projectId, 'connection', 'created', result.lastInsertRowid as number);
   res.status(201).json(connection);
 }));
 
 router.put('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
-  const existing = db.prepare('SELECT * FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as any;
+  const existing = db.prepare('SELECT * FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as Record<string, unknown> & { updated_at?: string } | undefined;
   if (!existing) return res.status(404).json({ error: 'Connection not found' });
+
+  if (req.body.updated_at && existing.updated_at !== req.body.updated_at) {
+    return res.status(409).json({ error: 'This connection was modified by another session. Please refresh and try again.' });
+  }
 
   const label = req.body.label !== undefined ? req.body.label : existing.label;
   const connection_type = req.body.connection_type !== undefined ? req.body.connection_type : existing.connection_type;
@@ -91,21 +97,21 @@ router.put('/:id', asyncHandler((req, res) => {
   const target_port = req.body.target_port !== undefined ? req.body.target_port : (existing.target_port ?? null);
 
   db.prepare(
-    'UPDATE connections SET label = ?, connection_type = ?, edge_type = ?, edge_color = ?, edge_width = ?, label_color = ?, label_bg_color = ?, source_handle = ?, target_handle = ?, source_port = ?, target_port = ? WHERE id = ?'
+    "UPDATE connections SET label = ?, connection_type = ?, edge_type = ?, edge_color = ?, edge_width = ?, label_color = ?, label_bg_color = ?, source_handle = ?, target_handle = ?, source_port = ?, target_port = ?, updated_at = datetime('now') WHERE id = ?"
   ).run(label ?? null, connection_type, edge_type, edge_color, edge_width, label_color, label_bg_color, source_handle, target_handle, source_port, target_port, req.params.id);
 
-  const connection = db.prepare('SELECT * FROM connections WHERE id = ?').get(req.params.id);
+  const connection = db.prepare('SELECT * FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
+  publishSafe(projectId, 'connection', 'updated', Number(req.params.id));
   res.json(connection);
 }));
 
 router.delete('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
-  const existing = db.prepare('SELECT id FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
-  if (!existing) return res.status(404).json({ error: 'Connection not found' });
+  const connection = db.prepare('SELECT * FROM connections WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as Record<string, unknown> | undefined;
+  if (!connection) return res.status(404).json({ error: 'Connection not found' });
 
-  // Build name for log
   const conn = db.prepare(
-    `SELECT c.*, sd.name as source_name, td.name as target_name,
+    `SELECT sd.name as source_name, td.name as target_name,
             ss.name as source_subnet_name, ts.name as target_subnet_name
      FROM connections c
      LEFT JOIN devices sd ON c.source_device_id = sd.id
@@ -113,12 +119,18 @@ router.delete('/:id', asyncHandler((req, res) => {
      LEFT JOIN subnets ss ON c.source_subnet_id = ss.id
      LEFT JOIN subnets ts ON c.target_subnet_id = ts.id
      WHERE c.id = ?`
-  ).get(req.params.id) as any;
+  ).get(req.params.id) as { source_name?: string; target_name?: string; source_subnet_name?: string; target_subnet_name?: string } | undefined;
   const srcName = conn?.source_name || conn?.source_subnet_name || '?';
   const tgtName = conn?.target_name || conn?.target_subnet_name || '?';
 
   db.prepare('DELETE FROM connections WHERE id = ? AND project_id = ?').run(req.params.id, projectId);
-  logActivity({ projectId, action: 'deleted', resourceType: 'connection', resourceId: Number(req.params.id), resourceName: `${srcName} → ${tgtName}` });
+  logActivity({
+    projectId, action: 'deleted', resourceType: 'connection',
+    resourceId: Number(req.params.id), resourceName: `${srcName} → ${tgtName}`,
+    previousState: { connection },
+    canUndo: true,
+  });
+  publishSafe(projectId, 'connection', 'deleted', Number(req.params.id));
   res.status(204).send();
 }));
 

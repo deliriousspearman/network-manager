@@ -1,13 +1,15 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
 import { sanitizeFilename } from '../validation.js';
+import { writeBlob, readBlob, absolutePath, deleteBlob } from '../storage/blobStore.js';
+import { SMALL_IMAGE_MAX_BYTES as MAX_IMAGE_SIZE } from '../config/limits.js';
 
 const router = Router({ mergeParams: true });
 
 const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-const MAX_IMAGE_SIZE = 2 * 1024 * 1024; // 2MB
 
-// List library images (metadata only, no blob)
+type BlobRow = { mime_type: string; file_path: string | null; data: string | null };
+
 router.get('/', (_req, res) => {
   const projectId = res.locals.projectId;
   const rows = db.prepare(
@@ -16,32 +18,31 @@ router.get('/', (_req, res) => {
   res.json(rows);
 });
 
-// Serve a library image as binary
 router.get('/:imageId/image', (req, res) => {
   const projectId = res.locals.projectId;
   const { imageId } = req.params;
   const row = db.prepare(
-    'SELECT mime_type, data FROM image_library WHERE id = ? AND project_id = ?'
-  ).get(imageId, projectId) as { mime_type: string; data: string } | undefined;
+    'SELECT mime_type, file_path, data FROM image_library WHERE id = ? AND project_id = ?'
+  ).get(imageId, projectId) as BlobRow | undefined;
   if (!row) return res.status(404).json({ error: 'Image not found' });
-  const buffer = Buffer.from(row.data, 'base64');
   res.setHeader('Content-Type', row.mime_type);
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.send(buffer);
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  if (row.file_path) return res.sendFile(absolutePath(row.file_path));
+  if (row.data) return res.send(Buffer.from(row.data, 'base64'));
+  return res.status(404).json({ error: 'Image payload missing' });
 });
 
-// Return image data as JSON (for placing on diagram)
 router.get('/:imageId/data', (req, res) => {
   const projectId = res.locals.projectId;
   const { imageId } = req.params;
   const row = db.prepare(
-    'SELECT filename, mime_type, data FROM image_library WHERE id = ? AND project_id = ?'
-  ).get(imageId, projectId) as { filename: string; mime_type: string; data: string } | undefined;
+    'SELECT filename, mime_type, file_path, data FROM image_library WHERE id = ? AND project_id = ?'
+  ).get(imageId, projectId) as { filename: string; mime_type: string; file_path: string | null; data: string | null } | undefined;
   if (!row) return res.status(404).json({ error: 'Image not found' });
-  res.json({ filename: row.filename, mime_type: row.mime_type, data: row.data });
+  const base64 = row.file_path ? readBlob(row.file_path).toString('base64') : (row.data ?? '');
+  res.json({ filename: row.filename, mime_type: row.mime_type, data: base64 });
 });
 
-// Upload a new image to the library
 router.post('/', (req, res) => {
   const projectId = res.locals.projectId;
   const { filename, mime_type, data } = req.body;
@@ -56,29 +57,26 @@ router.post('/', (req, res) => {
     return res.status(400).json({ error: 'Image exceeds 2 MB limit' });
   }
   const safeName = sanitizeFilename(filename);
-  try {
-    const result = db.prepare(
-      `INSERT INTO image_library (project_id, filename, mime_type, data, size)
-       VALUES (?, ?, ?, ?, ?)`
-    ).run(projectId, safeName, mime_type, data, decoded.length);
-    const image = db.prepare(
-      'SELECT id, project_id, filename, mime_type, size, created_at FROM image_library WHERE id = ?'
-    ).get(result.lastInsertRowid);
-    res.status(201).json(image);
-  } catch (err: unknown) {
-    console.error('Failed to upload to image library:', err);
-    const msg = err instanceof Error ? err.message : 'Database error';
-    res.status(500).json({ error: msg });
-  }
+  const result = db.prepare(
+    `INSERT INTO image_library (project_id, filename, mime_type, size)
+     VALUES (?, ?, ?, ?)`
+  ).run(projectId, safeName, mime_type, decoded.length);
+  const id = Number(result.lastInsertRowid);
+  const relPath = writeBlob(projectId, 'image_library', id, mime_type, decoded);
+  db.prepare('UPDATE image_library SET file_path = ? WHERE id = ?').run(relPath, id);
+  const image = db.prepare(
+    'SELECT id, project_id, filename, mime_type, size, created_at FROM image_library WHERE id = ?'
+  ).get(id);
+  res.status(201).json(image);
 });
 
-// Delete an image from the library
 router.delete('/:imageId', (req, res) => {
   const projectId = res.locals.projectId;
   const { imageId } = req.params;
-  const existing = db.prepare('SELECT id FROM image_library WHERE id = ? AND project_id = ?').get(imageId, projectId);
+  const existing = db.prepare('SELECT id, file_path FROM image_library WHERE id = ? AND project_id = ?').get(imageId, projectId) as { id: number; file_path: string | null } | undefined;
   if (!existing) return res.status(404).json({ error: 'Image not found' });
   db.prepare('DELETE FROM image_library WHERE id = ?').run(imageId);
+  deleteBlob(existing.file_path);
   res.status(204).send();
 });
 

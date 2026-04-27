@@ -2,6 +2,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useProject } from '../../contexts/ProjectContext';
 import { fetchDevice } from '../../api/devices';
+import { queryKeys } from '../../api/queryKeys';
 import { fetchSubnet } from '../../api/subnets';
 import { fetchAgent } from '../../api/agents';
 
@@ -39,21 +40,21 @@ export default function Breadcrumb() {
   const entityId = second && second !== 'new' ? Number(second) : null;
 
   const { data: device } = useQuery({
-    queryKey: ['device', projectId, entityId],
+    queryKey: queryKeys.devices.detail(projectId, entityId!),
     queryFn: () => fetchDevice(projectId, entityId!),
     enabled: section === 'devices' && entityId !== null,
     staleTime: 30_000,
   });
 
   const { data: subnet } = useQuery({
-    queryKey: ['subnet', projectId, entityId],
+    queryKey: queryKeys.subnets.detail(projectId, entityId!),
     queryFn: () => fetchSubnet(projectId, entityId!),
     enabled: section === 'subnets' && entityId !== null,
     staleTime: 30_000,
   });
 
   const { data: agent } = useQuery({
-    queryKey: ['agents', projectId, entityId],
+    queryKey: queryKeys.agents.detail(projectId, entityId!),
     queryFn: () => fetchAgent(projectId, entityId!),
     enabled: section === 'agents' && entityId !== null,
     staleTime: 30_000,
@@ -92,8 +93,8 @@ export default function Breadcrumb() {
         <span key={i} className="breadcrumb-item">
           {i > 0 && <span className="breadcrumb-sep">›</span>}
           {crumb.href
-            ? <Link to={crumb.href} className="breadcrumb-link">{crumb.label}</Link>
-            : <span className="breadcrumb-current">{crumb.label}</span>}
+            ? <Link to={crumb.href} className="breadcrumb-link" title={crumb.label}>{crumb.label}</Link>
+            : <span className="breadcrumb-current" title={crumb.label}>{crumb.label}</span>}
         </span>
       ))}
     </nav>

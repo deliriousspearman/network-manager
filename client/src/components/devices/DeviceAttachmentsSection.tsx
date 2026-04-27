@@ -32,13 +32,13 @@ export default function DeviceAttachmentsSection({ deviceId }: { deviceId: numbe
     mutationFn: (payload: { filename: string; mime_type: string; size: number; data: string }) =>
       uploadDeviceAttachment(projectId, deviceId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-attachments', projectId, deviceId] }),
-    onError: () => toast('Failed to upload attachment', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to upload attachment', 'error'),
   });
 
   const deleteMut = useMutation({
     mutationFn: (attachmentId: number) => deleteDeviceAttachment(projectId, deviceId, attachmentId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['device-attachments', projectId, deviceId] }),
-    onError: () => toast('Failed to delete attachment', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete attachment', 'error'),
   });
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {

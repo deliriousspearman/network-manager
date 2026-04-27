@@ -3,6 +3,7 @@ import DOMPurify from 'dompurify';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useProject } from '../../contexts/ProjectContext';
 import { updateDevice } from '../../api/devices';
+import { queryKeys } from '../../api/queryKeys';
 import { RichToolbar } from '../ui/RichEditor';
 
 interface Props {
@@ -19,7 +20,7 @@ export default function DeviceNotesSection({ deviceId, initialHtml }: Props) {
   const saveMut = useMutation({
     mutationFn: (html: string) => updateDevice(projectId, deviceId, { rich_notes: html }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['device', projectId, deviceId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devices.detail(projectId, deviceId) });
       setEditing(false);
     },
   });

@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import type { HostingType } from 'shared/types';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchDevice, deleteDevice } from '../../api/devices';
 import { fetchCredentialsByDevice } from '../../api/credentials';
+import { queryKeys } from '../../api/queryKeys';
 import { useProject } from '../../contexts/ProjectContext';
 import { rowNavHandlers } from '../../utils/navigation';
 import CommandSection from '../commands/CommandSection';
@@ -20,8 +20,8 @@ import DeviceAttachmentsSection from './DeviceAttachmentsSection';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Tabs, { type TabDef } from '../ui/Tabs';
 import PageHeader from '../layout/PageHeader';
+import Modal from '../ui/Modal';
 import { Pencil, FileText, Cable, Paperclip, Image, Terminal, Router, KeyRound, Info } from 'lucide-react';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
 
 export default function DeviceDetail() {
   const confirm = useConfirmDialog();
@@ -34,22 +34,22 @@ export default function DeviceDetail() {
   const deviceId = Number(id);
 
   const { data: device, isLoading } = useQuery({
-    queryKey: ['device', projectId, deviceId],
+    queryKey: queryKeys.devices.detail(projectId, deviceId),
     queryFn: () => fetchDevice(projectId, deviceId),
   });
 
   const { data: credentials } = useQuery({
-    queryKey: ['credentials', projectId, 'device', deviceId],
+    queryKey: queryKeys.credentials.forDevice(projectId, deviceId),
     queryFn: () => fetchCredentialsByDevice(projectId, deviceId),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => deleteDevice(projectId, id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['devices', projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.devices.all(projectId) });
       navigate(`${base}/devices`);
     },
-    onError: () => toast('Failed to delete device', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete device', 'error'),
   });
 
   const [credFormModal, setCredFormModal] = useState<{ open: boolean; editId?: number }>({ open: false });
@@ -96,7 +96,9 @@ export default function DeviceDetail() {
         </div>
         <div className="detail-item">
           <label>Subnet</label>
-          <p>{device.subnet_name || '—'}</p>
+          <p>{device.subnet_id && device.subnet_name
+            ? <Link to={`${base}/subnets/${device.subnet_id}`}>{device.subnet_name}</Link>
+            : (device.subnet_name || '—')}</p>
         </div>
         {device.type === 'server' && device.hosting_type && (
           <div className="detail-item">
@@ -181,11 +183,8 @@ export default function DeviceDetail() {
           </table>
         </div>
       )}
-      {credFormModal.open && createPortal(
-        <div className="confirm-overlay" onClick={() => setCredFormModal({ open: false })}>
-          <CredentialModal editId={credFormModal.editId} deviceId={device.id} onClose={() => setCredFormModal({ open: false })} />
-        </div>,
-        document.body
+      {credFormModal.open && (
+        <CredentialModal editId={credFormModal.editId} deviceId={device.id} onClose={() => setCredFormModal({ open: false })} />
       )}
     </div>
   );
@@ -289,14 +288,18 @@ function formatHostingType(ht: HostingType): string {
 }
 
 function CredentialModal({ editId, deviceId, onClose }: { editId?: number; deviceId: number; onClose: () => void }) {
-  const trapRef = useFocusTrap<HTMLDivElement>();
   return (
-    <div className="confirm-dialog" ref={trapRef} style={{ maxWidth: 500, width: '90vw' }} onClick={e => e.stopPropagation()}>
-      <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <span>{editId ? 'Edit Credential' : 'New Credential'}</span>
-        <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
-      </div>
+    <Modal
+      onClose={onClose}
+      style={{ maxWidth: 500, width: '90vw' }}
+      title={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{editId ? 'Edit Credential' : 'New Credential'}</span>
+          <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
+        </div>
+      }
+    >
       <CredentialForm editId={editId} defaultDeviceId={deviceId} onClose={onClose} />
-    </div>
+    </Modal>
   );
 }

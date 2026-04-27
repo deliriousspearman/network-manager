@@ -4,66 +4,98 @@ import { logActivity } from '../db/activityLog.js';
 import { parsers, isCommandType, type CommandType, type CommandTypeToRow } from '../parsers/index.js';
 import { verifyDeviceOwnership, verifyCommandOutputOwnership } from '../validation.js';
 import type { SubmitCommandOutputRequest, UpdateCommandOutputRequest } from 'shared/types.js';
+import { RAW_OUTPUT_MAX_BYTES as MAX_RAW_OUTPUT_SIZE } from '../config/limits.js';
 
 const router = Router({ mergeParams: true });
 
-const MAX_RAW_OUTPUT_SIZE = 50 * 1024 * 1024; // 50MB
+type CommandOutputRow = {
+  id: number;
+  device_id: number;
+  project_id: number;
+  command_type: string;
+  raw_output: string;
+  title: string | null;
+  parse_output: number;
+  captured_at: string;
+  updated_at: string;
+};
+type CommandOutputWithParsed = CommandOutputRow & { [key: `parsed_${string}`]: unknown[] };
 
 router.get('/device/:deviceId', (req, res) => {
   const projectId = res.locals.projectId;
   if (!verifyDeviceOwnership(req.params.deviceId, projectId)) {
     return res.status(404).json({ error: 'Device not found in this project' });
   }
+  // Optional date range. Accepts YYYY-MM-DD or YYYY-MM-DDTHH:MM[:SS].
+  const from = ((req.query.from as string) || '').trim();
+  const to = ((req.query.to as string) || '').trim();
+  const dateRe = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2})?)?$/;
+  const where: string[] = ['device_id = ?', 'project_id = ?'];
+  const params: unknown[] = [req.params.deviceId, projectId];
+  if (from && dateRe.test(from)) { where.push('captured_at >= ?'); params.push(from); }
+  if (to && dateRe.test(to))     { where.push('captured_at <= ?'); params.push(to.length === 10 ? to + 'T23:59:59' : to); }
   const outputs = db.prepare(
-    'SELECT id, device_id, command_type, captured_at, title, parse_output FROM command_outputs WHERE device_id = ? AND project_id = ? ORDER BY captured_at DESC'
-  ).all(req.params.deviceId, projectId);
+    `SELECT id, device_id, command_type, captured_at, title, parse_output FROM command_outputs WHERE ${where.join(' AND ')} ORDER BY captured_at DESC`
+  ).all(...params);
   res.json(outputs);
 });
 
+// Default and max parsed-row caps for GET /:id. The default of 1000 is
+// enough for typical command outputs but stops a 50k-process `ps` from
+// shipping every row to the browser. Clients can paginate via ?limit&offset
+// up to PARSED_HARD_CAP, and a total + truncated flag let the UI show
+// "Showing first 1000 of X" affordances.
+const PARSED_DEFAULT_LIMIT = 1000;
+const PARSED_HARD_CAP = 5000;
+
+// Map command type → its parsed_* table and the column to ORDER BY (rowid by
+// default — gives insertion order, which matches the order rows were parsed).
+const parsedTables: Partial<Record<string, { table: string; orderBy: string; key: string }>> = {
+  ps:               { table: 'parsed_processes',   orderBy: 'rowid',  key: 'parsed_processes' },
+  netstat:          { table: 'parsed_connections', orderBy: 'rowid',  key: 'parsed_connections' },
+  last:             { table: 'parsed_logins',      orderBy: 'rowid',  key: 'parsed_logins' },
+  ip_a:             { table: 'parsed_interfaces',  orderBy: 'rowid',  key: 'parsed_interfaces' },
+  mount:            { table: 'parsed_mounts',      orderBy: 'rowid',  key: 'parsed_mounts' },
+  ip_r:             { table: 'parsed_routes',      orderBy: 'rowid',  key: 'parsed_routes' },
+  systemctl_status: { table: 'parsed_services',    orderBy: 'rowid',  key: 'parsed_services' },
+  arp:              { table: 'parsed_arp',         orderBy: 'rowid',  key: 'parsed_arp' },
+  user_history:     { table: 'parsed_user_history', orderBy: 'line_no', key: 'parsed_user_history' },
+};
+
+interface ParsedMeta {
+  parsed_total?: number;
+  parsed_limit?: number;
+  parsed_offset?: number;
+  parsed_truncated?: boolean;
+}
+
 router.get('/:id', (req, res) => {
   const projectId = res.locals.projectId;
-  const output = db.prepare('SELECT * FROM command_outputs WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as any;
+  const output = db.prepare('SELECT * FROM command_outputs WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as (CommandOutputWithParsed & ParsedMeta) | undefined;
   if (!output) return res.status(404).json({ error: 'Output not found' });
 
   if (!output.parse_output) {
     return res.json(output);
   }
 
-  let parsed: any[] = [];
-  switch (output.command_type) {
-    case 'ps':
-      parsed = db.prepare('SELECT * FROM parsed_processes WHERE output_id = ?').all(output.id);
-      output.parsed_processes = parsed;
-      break;
-    case 'netstat':
-      parsed = db.prepare('SELECT * FROM parsed_connections WHERE output_id = ?').all(output.id);
-      output.parsed_connections = parsed;
-      break;
-    case 'last':
-      parsed = db.prepare('SELECT * FROM parsed_logins WHERE output_id = ?').all(output.id);
-      output.parsed_logins = parsed;
-      break;
-    case 'ip_a':
-      parsed = db.prepare('SELECT * FROM parsed_interfaces WHERE output_id = ?').all(output.id);
-      output.parsed_interfaces = parsed;
-      break;
-    case 'mount':
-      parsed = db.prepare('SELECT * FROM parsed_mounts WHERE output_id = ?').all(output.id);
-      output.parsed_mounts = parsed;
-      break;
-    case 'ip_r':
-      parsed = db.prepare('SELECT * FROM parsed_routes WHERE output_id = ?').all(output.id);
-      output.parsed_routes = parsed;
-      break;
-    case 'systemctl_status':
-      parsed = db.prepare('SELECT * FROM parsed_services WHERE output_id = ?').all(output.id);
-      output.parsed_services = parsed;
-      break;
-    case 'arp':
-      parsed = db.prepare('SELECT * FROM parsed_arp WHERE output_id = ?').all(output.id);
-      output.parsed_arp = parsed;
-      break;
-  }
+  const spec = parsedTables[output.command_type];
+  if (!spec) return res.json(output);
+
+  const limit = Math.min(Math.max(Number(req.query.limit) || PARSED_DEFAULT_LIMIT, 1), PARSED_HARD_CAP);
+  const offset = Math.max(Number(req.query.offset) || 0, 0);
+
+  const total = (db.prepare(`SELECT COUNT(*) as c FROM ${spec.table} WHERE output_id = ?`).get(output.id) as { c: number }).c;
+  const rows = db.prepare(
+    `SELECT * FROM ${spec.table} WHERE output_id = ? ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`
+  ).all(output.id, limit, offset);
+
+  // spec.key is the legacy key name the client already reads
+  // (parsed_processes for ps, parsed_connections for netstat, etc.).
+  (output as unknown as Record<string, unknown>)[spec.key] = rows;
+  output.parsed_total = total;
+  output.parsed_limit = limit;
+  output.parsed_offset = offset;
+  output.parsed_truncated = total > offset + rows.length;
 
   res.json(output);
 });
@@ -94,6 +126,9 @@ const insertService = db.prepare(
 );
 const insertArp = db.prepare(
   'INSERT INTO parsed_arp (output_id, ip, mac_address, interface_name) VALUES (?, ?, ?, ?)'
+);
+const insertUserHistory = db.prepare(
+  'INSERT INTO parsed_user_history (output_id, line_no, timestamp, command) VALUES (?, ?, ?, ?)'
 );
 
 // Parse raw output for a known command type and insert typed rows. Both the
@@ -146,6 +181,11 @@ function parseAndInsertRows(outputId: number, commandType: CommandType, rawOutpu
     case 'arp':
       for (const r of rows as CommandTypeToRow['arp'][]) {
         insertArp.run(outputId, r.ip, r.mac, r.interface ?? null);
+      }
+      break;
+    case 'user_history':
+      for (const r of rows as CommandTypeToRow['user_history'][]) {
+        insertUserHistory.run(outputId, r.line_no, r.timestamp, r.command);
       }
       break;
   }
@@ -204,10 +244,11 @@ const deleteParsedRows: Record<string, ReturnType<typeof db.prepare>> = {
   ip_r: db.prepare('DELETE FROM parsed_routes WHERE output_id = ?'),
   systemctl_status: db.prepare('DELETE FROM parsed_services WHERE output_id = ?'),
   arp: db.prepare('DELETE FROM parsed_arp WHERE output_id = ?'),
+  user_history: db.prepare('DELETE FROM parsed_user_history WHERE output_id = ?'),
 };
 
 const toggleParseOutput = db.transaction((id: number, enable: boolean) => {
-  const output = db.prepare('SELECT * FROM command_outputs WHERE id = ?').get(id) as any;
+  const output = db.prepare('SELECT * FROM command_outputs WHERE id = ?').get(id) as CommandOutputRow | undefined;
   if (!output) return null;
   if (output.command_type === 'freeform') return output;
 
@@ -237,11 +278,11 @@ router.patch('/:id/parse', (req, res) => {
 });
 
 const updateOutputTx = db.transaction((id: number, body: UpdateCommandOutputRequest) => {
-  const existing = db.prepare('SELECT * FROM command_outputs WHERE id = ?').get(id) as any;
+  const existing = db.prepare('SELECT * FROM command_outputs WHERE id = ?').get(id) as CommandOutputRow | undefined;
   if (!existing) return null;
 
-  const sets: string[] = [];
-  const values: any[] = [];
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const values: unknown[] = [];
   if (body.raw_output !== undefined) { sets.push('raw_output = ?'); values.push(body.raw_output); }
   if (body.captured_at !== undefined) {
     // Normalise datetime-local format (YYYY-MM-DDTHH:MM) to SQLite format (YYYY-MM-DD HH:MM:SS)
@@ -272,24 +313,64 @@ router.patch('/:id', (req, res) => {
   if (!verifyCommandOutputOwnership(req.params.id, projectId)) {
     return res.status(404).json({ error: 'Output not found' });
   }
-  const result = updateOutputTx(Number(req.params.id), req.body as UpdateCommandOutputRequest);
+  const body = req.body as UpdateCommandOutputRequest & { updated_at?: string };
+  if (body.updated_at) {
+    const current = db.prepare('SELECT updated_at FROM command_outputs WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { updated_at: string } | undefined;
+    if (current && current.updated_at !== body.updated_at) {
+      return res.status(409).json({ error: 'This capture was modified by another session. Please refresh and try again.' });
+    }
+  }
+  const result = updateOutputTx(Number(req.params.id), body);
   if (!result) return res.status(404).json({ error: 'Output not found' });
   res.json(result);
 });
 
-router.delete('/:id', (req, res) => {
-  const projectId = res.locals.projectId;
+// Delete one output row + log. Returns true if a row was actually deleted.
+const deleteOneOutput = db.transaction((id: number, projectId: number): boolean => {
   const existing = db.prepare(
     `SELECT co.command_type, d.name as device_name, co.project_id
      FROM command_outputs co LEFT JOIN devices d ON co.device_id = d.id
      WHERE co.id = ? AND co.project_id = ?`
-  ).get(req.params.id, projectId) as { command_type: string; device_name: string | null; project_id: number } | undefined;
-  const result = db.prepare('DELETE FROM command_outputs WHERE id = ? AND project_id = ?').run(req.params.id, projectId);
-  if (result.changes === 0) return res.status(404).json({ error: 'Output not found' });
-  if (existing) {
-    logActivity({ projectId: existing.project_id ?? projectId, action: 'deleted', resourceType: 'command_output', resourceId: Number(req.params.id), resourceName: existing.device_name ?? undefined, details: { command_type: existing.command_type } });
-  }
+  ).get(id, projectId) as { command_type: string; device_name: string | null; project_id: number } | undefined;
+  if (!existing) return false;
+  db.prepare('DELETE FROM command_outputs WHERE id = ? AND project_id = ?').run(id, projectId);
+  logActivity({ projectId: existing.project_id ?? projectId, action: 'deleted', resourceType: 'command_output', resourceId: id, resourceName: existing.device_name ?? undefined, details: { command_type: existing.command_type } });
+  return true;
+});
+
+router.delete('/:id', (req, res) => {
+  const projectId = res.locals.projectId;
+  // Idempotent: a missing row means another tab already deleted it.
+  deleteOneOutput(Number(req.params.id), projectId);
   res.status(204).send();
+});
+
+const COMMAND_OUTPUT_BULK_MAX_IDS = 500;
+
+router.post('/bulk-delete', (req, res) => {
+  const projectId = res.locals.projectId;
+  const body = req.body as { ids?: unknown };
+  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+    return res.status(400).json({ error: 'ids must be a non-empty array' });
+  }
+  if (body.ids.length > COMMAND_OUTPUT_BULK_MAX_IDS) {
+    return res.status(400).json({ error: `Cannot delete more than ${COMMAND_OUTPUT_BULK_MAX_IDS} outputs at once` });
+  }
+  const ids = body.ids.map(v => Number(v));
+  if (ids.some(n => !Number.isFinite(n) || n <= 0 || !Number.isInteger(n))) {
+    return res.status(400).json({ error: 'ids must be positive integers' });
+  }
+
+  const deleted: number[] = [];
+  const failed: { id: number; error: string }[] = [];
+  for (const id of ids) {
+    try {
+      if (deleteOneOutput(id, projectId)) deleted.push(id);
+    } catch (err) {
+      failed.push({ id, error: err instanceof Error ? err.message : 'Unknown error' });
+    }
+  }
+  res.json({ deleted, failed });
 });
 
 export default router;

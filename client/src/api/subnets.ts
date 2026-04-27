@@ -1,7 +1,8 @@
-import type { Subnet, CreateSubnetRequest } from 'shared/types';
-import { projectBase } from './base';
+import type { Subnet, CreateSubnetRequest, Device } from 'shared/types';
+import { projectBase, buildPaginationParams } from './base';
 import { throwApiError } from '../utils/apiError';
 import type { PagedResult, PagedParams } from './devices';
+import { validate, pagedEnvelope } from '../utils/apiValidation';
 
 export async function fetchSubnets(projectId: number): Promise<Subnet[]> {
   const res = await fetch(projectBase(projectId, 'subnets'));
@@ -9,17 +10,19 @@ export async function fetchSubnets(projectId: number): Promise<Subnet[]> {
   return res.json();
 }
 
-export async function fetchSubnetsPaged(projectId: number, params: PagedParams = {}): Promise<PagedResult<Subnet>> {
-  const q = new URLSearchParams({ page: String(params.page ?? 1), limit: String(params.limit ?? 50) });
-  if (params.search) q.set('search', params.search);
-  if (params.sort) q.set('sort', params.sort);
-  if (params.order) q.set('order', params.order);
-  const res = await fetch(`${projectBase(projectId, 'subnets')}?${q}`);
-  if (!res.ok) await throwApiError(res, 'Failed to fetch subnets');
-  return res.json();
+export interface SubnetListParams extends PagedParams {
+  vlan?: 'has' | 'none';
 }
 
-export async function fetchSubnet(projectId: number, id: number): Promise<Subnet & { devices: any[] }> {
+export async function fetchSubnetsPaged(projectId: number, params: SubnetListParams = {}): Promise<PagedResult<Subnet>> {
+  const q = buildPaginationParams(params);
+  if (params.vlan) q.set('vlan', params.vlan);
+  const res = await fetch(`${projectBase(projectId, 'subnets')}?${q}`);
+  if (!res.ok) await throwApiError(res, 'Failed to fetch subnets');
+  return validate<PagedResult<Subnet>>(await res.json(), pagedEnvelope, 'fetchSubnetsPaged');
+}
+
+export async function fetchSubnet(projectId: number, id: number): Promise<Subnet & { devices: Device[] }> {
   const res = await fetch(`${projectBase(projectId, 'subnets')}/${id}`);
   if (!res.ok) await throwApiError(res, 'Subnet not found');
   return res.json();
@@ -48,4 +51,14 @@ export async function updateSubnet(projectId: number, id: number, data: CreateSu
 export async function deleteSubnet(projectId: number, id: number): Promise<void> {
   const res = await fetch(`${projectBase(projectId, 'subnets')}/${id}`, { method: 'DELETE' });
   if (!res.ok) await throwApiError(res, 'Failed to delete subnet');
+}
+
+export async function bulkDeleteSubnets(projectId: number, ids: number[]): Promise<{ deleted: number[]; failed: { id: number; error: string }[] }> {
+  const res = await fetch(`${projectBase(projectId, 'subnets')}/bulk-delete`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) await throwApiError(res, 'Failed to delete subnets');
+  return res.json();
 }

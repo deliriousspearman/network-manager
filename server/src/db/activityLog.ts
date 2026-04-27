@@ -7,24 +7,29 @@ interface LogParams {
   resourceId?: number | null;
   resourceName?: string | null;
   details?: Record<string, unknown> | null;
+  previousState?: Record<string, unknown> | null;
+  canUndo?: boolean;
 }
 
 const insertLog = db.prepare(`
-  INSERT INTO activity_logs (project_id, action, resource_type, resource_id, resource_name, details)
-  VALUES (?, ?, ?, ?, ?, ?)
+  INSERT INTO activity_logs (project_id, action, resource_type, resource_id, resource_name, details, previous_state, can_undo)
+  VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 `);
 
-export function logActivity(p: LogParams): void {
+export function logActivity(p: LogParams): number | null {
   try {
-    insertLog.run(
+    const result = insertLog.run(
       p.projectId ?? null,
       p.action,
       p.resourceType,
       p.resourceId ?? null,
       p.resourceName ?? null,
-      p.details ? JSON.stringify(p.details) : null
+      p.details ? JSON.stringify(p.details) : null,
+      p.previousState ? JSON.stringify(p.previousState) : null,
+      p.canUndo ? 1 : 0,
     );
+    return Number(result.lastInsertRowid);
   } catch {
-    // Never let logging failure affect the main operation
+    return null;
   }
 }

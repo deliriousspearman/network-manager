@@ -1,5 +1,6 @@
 /** Shared input validation helpers for route handlers. */
 
+import { isIP } from 'net';
 import db from './db/connection.js';
 
 /** Verify a device belongs to the given project. Returns true if valid. */
@@ -90,13 +91,25 @@ export function validateColor(val: unknown): string | null {
   return null;
 }
 
-/** Validate optional MAC address. */
+/** Validate optional MAC address. Throws on non-empty malformed input. */
 export function validateMac(val: unknown): string | null {
   if (val === undefined || val === null || val === '') return null;
-  if (typeof val !== 'string') return null;
+  if (typeof val !== 'string') throw new ValidationError('mac_address must be a string');
   const trimmed = val.trim();
+  if (!trimmed) return null;
   if (/^([0-9a-fA-F]{2}[:-]){5}[0-9a-fA-F]{2}$/.test(trimmed)) return trimmed;
-  return trimmed.slice(0, 50) || null; // Allow non-standard formats but limit length
+  throw new ValidationError('mac_address must be formatted as AA:BB:CC:DD:EE:FF (hex pairs separated by : or -)');
+}
+
+/** Validate an IPv4 or IPv6 address (no CIDR suffix). Returns trimmed value or null. */
+export function validateIpAddress(val: unknown, name = 'ip_address'): string {
+  if (typeof val !== 'string') throw new ValidationError(`${name} is required`);
+  const trimmed = val.trim();
+  if (!trimmed) throw new ValidationError(`${name} is required`);
+  if (isIP(trimmed) === 0) {
+    throw new ValidationError(`${name} is not a valid IPv4 or IPv6 address`);
+  }
+  return trimmed;
 }
 
 /** Sanitize a filename: basename only, restricted characters. */

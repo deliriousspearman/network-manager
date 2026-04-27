@@ -1,7 +1,31 @@
-import { useState, useCallback } from 'react';
-import { Play, Sparkles } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Play, Sparkles, BookmarkPlus, Bookmark, X } from 'lucide-react';
 import { useProject } from '../../contexts/ProjectContext';
 import { executeQuery, type QueryResult } from '../../api/sqlQuery';
+import { getStorage, setStorage } from '../../utils/storage';
+import { useToast } from '../ui/Toast';
+import { useConfirmDialog } from '../ui/ConfirmDialog';
+
+interface SavedQuery {
+  name: string;
+  sql: string;
+  savedAt: string;
+}
+
+function loadSavedQueries(): SavedQuery[] {
+  const stored = getStorage('queryPage.savedQueries');
+  if (!stored) return [];
+  try {
+    const parsed = JSON.parse(stored);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedQueries(queries: SavedQuery[]) {
+  setStorage('queryPage.savedQueries', JSON.stringify(queries));
+}
 
 interface SuggestedQuery {
   label: string;
@@ -136,10 +160,37 @@ ORDER BY device_count DESC`,
 
 export default function QueryPage() {
   const { projectId } = useProject();
+  const toast = useToast();
+  const confirm = useConfirmDialog();
   const [sql, setSql] = useState('');
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [savedQueries, setSavedQueries] = useState<SavedQuery[]>(() => loadSavedQueries());
+
+  useEffect(() => {
+    persistSavedQueries(savedQueries);
+  }, [savedQueries]);
+
+  const saveCurrentQuery = useCallback(() => {
+    const trimmed = sql.trim();
+    if (!trimmed) return;
+    const name = window.prompt('Name this query:');
+    if (!name) return;
+    const clean = name.trim().slice(0, 100);
+    if (!clean) return;
+    setSavedQueries(prev => {
+      const next = prev.filter(q => q.name !== clean);
+      next.unshift({ name: clean, sql: trimmed, savedAt: new Date().toISOString() });
+      return next.slice(0, 50);
+    });
+    toast(`Saved "${clean}"`, 'success');
+  }, [sql, toast]);
+
+  const deleteSavedQuery = useCallback(async (name: string) => {
+    if (!await confirm(`Delete "${name}"?`, 'Delete saved query')) return;
+    setSavedQueries(prev => prev.filter(q => q.name !== name));
+  }, [confirm]);
 
   const runQuery = useCallback(async () => {
     if (!sql.trim()) return;
@@ -182,7 +233,7 @@ export default function QueryPage() {
                 key={q.label}
                 className="btn btn-secondary"
                 style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem' }}
-                title={q.description}
+                title={q.description} aria-label={q.description}
                 onClick={() => setSql(q.sql)}
               >
                 {q.label}
@@ -190,6 +241,50 @@ export default function QueryPage() {
             ))}
           </div>
         </div>
+
+        {/* Saved queries */}
+        {savedQueries.length > 0 && (
+          <div className="card" style={{ padding: '1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.75rem' }}>
+              <Bookmark size={16} style={{ color: 'var(--color-primary)' }} />
+              <strong style={{ fontSize: '0.9rem' }}>Saved Queries</strong>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+              {savedQueries.map(q => (
+                <span
+                  key={q.name}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '0.25rem',
+                    fontSize: '0.8rem',
+                    background: 'var(--color-bg-secondary)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 6,
+                    padding: '0.2rem 0.2rem 0.2rem 0.55rem',
+                  }}
+                  title={q.sql}
+                >
+                  <button
+                    type="button"
+                    onClick={() => setSql(q.sql)}
+                    style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: 0, fontSize: 'inherit' }}
+                  >
+                    {q.name}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteSavedQuery(q.name)}
+                    aria-label={`Delete saved query ${q.name}`}
+                    style={{ background: 'none', border: 'none', color: 'var(--color-text-secondary)', cursor: 'pointer', padding: '0.1rem', display: 'inline-flex', alignItems: 'center' }}
+                  >
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* SQL editor */}
         <div className="card" style={{ padding: '1rem' }}>
@@ -223,6 +318,16 @@ export default function QueryPage() {
             >
               <Play size={14} />
               {loading ? 'Running...' : 'Run Query'}
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={saveCurrentQuery}
+              disabled={!sql.trim()}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+              title="Save this query" aria-label="Save this query"
+            >
+              <BookmarkPlus size={14} />
+              Save
             </button>
             <span style={{ fontSize: '0.75rem', color: 'var(--color-text-secondary)' }}>
               Ctrl+Enter to run

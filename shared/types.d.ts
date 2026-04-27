@@ -285,6 +285,7 @@ export interface DiagramData {
     current_view_id: number;
     device_icon_overrides: number[];
     type_default_icons: string[];
+    agent_types: { id: number; key: string; icon_source: 'builtin' | 'upload'; icon_builtin_key: string | null; has_upload: number }[];
     diagram_images: DiagramImage[];
 }
 export interface CreateDeviceRequest {
@@ -509,6 +510,8 @@ export interface ActivityLog {
     resource_name: string | null;
     details: string | null;
     created_at: string;
+    can_undo?: number;
+    undone_at?: string | null;
 }
 export interface CreateCredentialRequest {
     device_id?: number | null;
@@ -578,9 +581,22 @@ export interface UpdateTimelineEntryRequest {
     event_date?: string;
     category?: TimelineCategory;
 }
-export declare const AGENT_TYPES: readonly ["wazuh", "zabbix", "elk", "prometheus", "grafana", "nagios", "datadog", "splunk", "ossec", "custom"];
-export type AgentType = typeof AGENT_TYPES[number];
-export declare const AGENT_TYPE_LABELS: Record<AgentType, string>;
+export declare const BUILTIN_AGENT_ICON_KEYS: readonly ["wazuh", "zabbix", "elk", "prometheus", "grafana", "nagios", "datadog", "splunk", "ossec", "custom"];
+export type BuiltinAgentIconKey = typeof BUILTIN_AGENT_ICON_KEYS[number];
+export interface AgentType {
+    id: number;
+    project_id: number;
+    key: string;
+    label: string;
+    icon_source: 'builtin' | 'upload';
+    icon_builtin_key: string | null;
+    filename: string | null;
+    mime_type: string | null;
+    has_upload?: boolean;
+    sort_order: number;
+    created_at: string;
+    updated_at: string;
+}
 export declare const AGENT_STATUSES: readonly ["active", "inactive", "error", "unknown"];
 export type AgentStatus = typeof AGENT_STATUSES[number];
 export declare const AGENT_STATUS_LABELS: Record<AgentStatus, string>;
@@ -588,7 +604,7 @@ export interface Agent {
     id: number;
     project_id: number;
     name: string;
-    agent_type: AgentType;
+    agent_type: string;
     device_id: number | null;
     checkin_schedule: string | null;
     config: string | null;
@@ -605,7 +621,7 @@ export interface AgentWithDevice extends Agent {
 }
 export interface CreateAgentRequest {
     name: string;
-    agent_type: AgentType;
+    agent_type: string;
     device_id?: number | null;
     checkin_schedule?: string;
     config?: string;

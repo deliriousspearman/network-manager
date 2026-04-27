@@ -6,6 +6,7 @@ import { parseMount, type MountRow } from './mount.js';
 import { parseIpRoute, type IpRouteRow } from './ipRoute.js';
 import { parseSystemctlStatus, type SystemctlServiceRow } from './systemctlStatus.js';
 import { parseArp, type ArpHost } from './arp.js';
+import { parseUserHistory, type UserHistoryRow } from './userHistory.js';
 
 // Discriminated union keyed on command_type. Keeps the parser registry,
 // insert switch, and ParsedRow alias all tied to one table of record so
@@ -19,6 +20,7 @@ export interface CommandTypeToRow {
   ip_r: IpRouteRow;
   systemctl_status: SystemctlServiceRow;
   arp: ArpHost;
+  user_history: UserHistoryRow;
 }
 
 export type CommandType = keyof CommandTypeToRow;
@@ -33,6 +35,7 @@ export const parsers: { [K in CommandType]: (raw: string) => CommandTypeToRow[K]
   ip_r: parseIpRoute,
   systemctl_status: parseSystemctlStatus,
   arp: parseArp,
+  user_history: parseUserHistory,
 };
 
 export function isCommandType(s: string): s is CommandType {

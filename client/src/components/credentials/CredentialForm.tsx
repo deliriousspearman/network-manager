@@ -1,13 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { fetchCredential, createCredential, updateCredential } from '../../api/credentials';
-import { fetchDevices } from '../../api/devices';
+import { fetchCredential, createCredential, updateCredential, fetchCredentialFileText } from '../../api/credentials';
+import { queryKeys } from '../../api/queryKeys';
 import { useProject } from '../../contexts/ProjectContext';
+import DevicePicker from '../ui/DevicePicker';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import { onCmdEnterSubmit } from '../../hooks/useCmdEnterSubmit';
 import { useToast } from '../ui/Toast';
 import { CREDENTIAL_TYPES } from 'shared/types';
 import { formErrorMessage } from '../../utils/formError';
+import PasswordHistorySection from './PasswordHistorySection';
 
 interface Props {
   onClose?: () => void;
@@ -34,17 +37,19 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
   const [type, setType] = useState('');
   const [source, setSource] = useState('');
   const [used, setUsed] = useState(false);
-  const [file, setFile] = useState<File | null>(null);
   const [existingFileName, setExistingFileName] = useState<string | null>(null);
   const [removeFile, setRemoveFile] = useState(false);
+  // Paste mode (used by both SSH Key and VPN types): textarea content +
+  // originating filename if the user used the Browse… button to load a file.
+  const [fileText, setFileText] = useState('');
+  const [sourceFileName, setSourceFileName] = useState<string | null>(null);
   const [isDirty, setIsDirty] = useState(false);
 
   // Only block navigation for page-mode (not modal)
   useUnsavedChanges(!isModal && isDirty);
 
-  const { data: devices } = useQuery({ queryKey: ['devices', projectId], queryFn: () => fetchDevices(projectId) });
   const { data: credential } = useQuery({
-    queryKey: ['credential', projectId, id],
+    queryKey: queryKeys.credentials.detail(projectId, id!),
     queryFn: () => fetchCredential(projectId, id!),
     enabled: isEdit,
   });
@@ -62,13 +67,22 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
     }
   }, [credential]);
 
-  const handleDeviceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value ? Number(e.target.value) : null;
+  // For SSH Key + VPN edits, fetch the existing file content into the textarea
+  // so the user can see + tweak it. Failure (network, file gone) silently
+  // leaves the textarea empty; on save the user can re-paste or browse again.
+  useEffect(() => {
+    if (!isEdit || !id || !credential?.file_name) return;
+    if (credential.type !== 'SSH Key' && credential.type !== 'VPN') return;
+    let cancelled = false;
+    fetchCredentialFileText(projectId, id)
+      .then(text => { if (!cancelled) { setFileText(text); setSourceFileName(credential.file_name); } })
+      .catch(() => { /* ignore — user can re-paste */ });
+    return () => { cancelled = true; };
+  }, [credential, isEdit, projectId, id]);
+
+  const handleDeviceChange = (val: number | null, _name?: string, primaryIp?: string | null) => {
     setDeviceId(val);
-    if (val) {
-      const device = devices?.find(d => d.id === val);
-      if (device?.primary_ip) setHost(device.primary_ip);
-    }
+    if (val && primaryIp) setHost(primaryIp);
   };
 
   const handleTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -77,24 +91,56 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
     if (newType === 'VPN' || newType === 'SSH Key') {
       setPassword('');
     } else {
-      setFile(null);
+      setFileText('');
+      setSourceFileName(null);
       setRemoveFile(true);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const showFileUpload = type === 'VPN' || type === 'SSH Key';
+  const isFileType = type === 'VPN' || type === 'SSH Key';
 
-  const readFileAsBase64 = (f: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1]);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(f);
-    });
+  // Per-type UI config for the textarea + browse pair. Both SSH Key and VPN
+  // use the same paste-friendly pattern; only the labels, placeholder, file
+  // picker accept list, and default filename when pasting differ.
+  const fileTypeConfig: Record<string, { label: string; placeholder: string; accept: string; defaultName: string }> = {
+    'SSH Key': {
+      label: 'SSH Key',
+      placeholder: 'Paste the key contents here, or use Browse… to load a file\n\n-----BEGIN OPENSSH PRIVATE KEY-----\n…',
+      accept: '.pem,.key,.pub,.ppk,text/plain,application/x-pem-file,*/*',
+      defaultName: 'id_rsa',
+    },
+    VPN: {
+      label: 'VPN Config',
+      placeholder: 'Paste the config contents here, or use Browse… to load a file\n\n# OpenVPN client config\nclient\nremote vpn.example.com 1194\n…',
+      accept: '.conf,.ovpn,.ini,.xml,.pcf,text/plain,*/*',
+      defaultName: 'vpn.conf',
+    },
+  };
+  const cfg = isFileType ? fileTypeConfig[type] : null;
+
+  // text → base64. Works on plain ASCII (which keys/configs are); the
+  // encodeURIComponent pass also handles any stray UTF-8 the user may have
+  // pasted, since btoa() alone throws on chars > 0xFF.
+  const textToBase64 = (text: string): string => {
+    return btoa(unescape(encodeURIComponent(text)));
+  };
+
+  const handleFileBrowse = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const text = await f.text();
+      setFileText(text);
+      setSourceFileName(f.name);
+      setRemoveFile(false);
+      setIsDirty(true);
+    } catch {
+      toast('Failed to read file', 'error');
+    } finally {
+      // Reset so re-selecting the same file fires onChange again.
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
   };
 
   const done = () => {
@@ -108,10 +154,10 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
       return isEdit ? updateCredential(projectId, id!, data) : createCredential(projectId, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['credentials', projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.credentials.all(projectId) });
       done();
     },
-    onError: () => toast('Failed to save credential', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to save credential', 'error'),
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -126,12 +172,18 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
       used: used ? 1 : 0,
     };
 
-    if (file) {
-      data.file_data = await readFileAsBase64(file);
-      data.file_name = file.name;
-    } else if (removeFile && !showFileUpload) {
-      data.file_name = '';
+    if (isFileType && cfg) {
+      // Paste mode: encode textarea content as the saved blob. file_name
+      // defaults to the type's defaultName when the user pasted without browsing.
+      if (fileText.trim()) {
+        data.file_data = textToBase64(fileText);
+        data.file_name = sourceFileName || cfg.defaultName;
+      } else if (existingFileName || removeFile) {
+        // Empty textarea + had a stored file → clear it.
+        data.file_name = '';
+      }
     } else if (removeFile) {
+      // Type changed away from a file-bearing one and there was an existing file → clear it.
       data.file_name = '';
     }
 
@@ -143,15 +195,10 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
   };
 
   const formContent = (
-    <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
+    <form onSubmit={handleSubmit} onKeyDown={onCmdEnterSubmit} onChange={() => setIsDirty(true)}>
       <div className="form-group">
         <label>Device</label>
-        <select value={deviceId ?? ''} onChange={handleDeviceChange}>
-          <option value="">None</option>
-          {devices?.map(d => (
-            <option key={d.id} value={d.id}>{d.name}{d.primary_ip ? ` (${d.primary_ip})` : ''}</option>
-          ))}
-        </select>
+        <DevicePicker value={deviceId} onChange={handleDeviceChange} placeholder="None" />
       </div>
 
       <div className="form-group">
@@ -185,26 +232,45 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
         </select>
       </div>
 
-      {showFileUpload ? (
+      {isFileType && cfg ? (
         <div className="form-group">
-          <label>File {type === 'SSH Key' ? '(Key File)' : '(Config File)'}</label>
-          {existingFileName && !removeFile && !file && (
-            <div className="file-existing">
-              <span>{existingFileName}</span>
-              <button type="button" className="btn btn-danger btn-sm" onClick={() => setRemoveFile(true)}>
-                Remove
-              </button>
-            </div>
-          )}
-          <input
-            ref={fileInputRef}
-            type="file"
-            onChange={e => {
-              const f = e.target.files?.[0] || null;
-              setFile(f);
-              if (f) setRemoveFile(false);
-            }}
+          <label>{cfg.label}</label>
+          <textarea
+            value={fileText}
+            onChange={e => { setFileText(e.target.value); setRemoveFile(false); if (!e.target.value) setSourceFileName(null); }}
+            rows={8}
+            placeholder={cfg.placeholder}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            style={{ fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre' }}
           />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => fileInputRef.current?.click()}>
+              Browse…
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={cfg.accept}
+              style={{ display: 'none' }}
+              onChange={handleFileBrowse}
+            />
+            {sourceFileName && (
+              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
+                Loaded from: {sourceFileName}
+              </span>
+            )}
+            {(fileText || existingFileName) && (
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                onClick={() => { setFileText(''); setSourceFileName(null); setRemoveFile(true); }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <div className="form-group">
@@ -257,7 +323,16 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
     </form>
   );
 
-  if (isModal) return formContent;
+  const historySection = isEdit && id ? (
+    <PasswordHistorySection projectId={projectId} credentialId={id} />
+  ) : null;
+
+  if (isModal) return (
+    <>
+      {formContent}
+      {historySection}
+    </>
+  );
 
   return (
     <div>
@@ -266,6 +341,7 @@ export default function CredentialForm({ onClose, editId, defaultDeviceId }: Pro
       </div>
       <div className="card">
         {formContent}
+        {historySection}
       </div>
     </div>
   );

@@ -5,11 +5,38 @@ import { routerConfigParsers } from '../parsers/routerConfig/index.js';
 import type { ParsedRouterConfig } from '../parsers/routerConfig/index.js';
 import { verifyDeviceOwnership, verifyRouterConfigOwnership } from '../validation.js';
 import type { SubmitRouterConfigRequest, UpdateRouterConfigRequest, RouterVendor } from 'shared/types.js';
+import { RAW_OUTPUT_MAX_BYTES as MAX_RAW_CONFIG_SIZE } from '../config/limits.js';
 
 const router = Router({ mergeParams: true });
 
-const MAX_RAW_CONFIG_SIZE = 50 * 1024 * 1024; // 50 MB
 const VALID_VENDORS: RouterVendor[] = ['cisco', 'unifi', 'mikrotik', 'juniper', 'fortigate', 'pfsense'];
+
+type RouterConfigRow = {
+  id: number;
+  device_id: number;
+  project_id: number;
+  vendor: string;
+  raw_config: string;
+  title: string | null;
+  parse_output: number;
+  hostname: string | null;
+  os_version: string | null;
+  model: string | null;
+  domain: string | null;
+  timezone: string | null;
+  ntp_servers: string | null;
+  captured_at: string;
+  updated_at: string;
+};
+type RouterConfigWithParsed = RouterConfigRow & {
+  parsed_interfaces?: unknown[];
+  parsed_vlans?: unknown[];
+  parsed_static_routes?: unknown[];
+  parsed_acls?: unknown[];
+  parsed_nat_rules?: unknown[];
+  parsed_dhcp_pools?: unknown[];
+  parsed_users?: unknown[];
+};
 
 // ----- LIST -----
 router.get('/device/:deviceId', (req, res) => {
@@ -29,7 +56,7 @@ router.get('/device/:deviceId', (req, res) => {
 // ----- GET ONE (with parsed children) -----
 router.get('/:id', (req, res) => {
   const projectId = res.locals.projectId;
-  const config = db.prepare('SELECT * FROM router_configs WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as any;
+  const config = db.prepare('SELECT * FROM router_configs WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as RouterConfigWithParsed | undefined;
   if (!config) return res.status(404).json({ error: 'Router config not found' });
 
   if (config.parse_output) {
@@ -175,7 +202,7 @@ const submitConfig = db.transaction((deviceId: number, body: SubmitRouterConfigR
 });
 
 const toggleParseConfig = db.transaction((id: number, enable: boolean) => {
-  const config = db.prepare('SELECT * FROM router_configs WHERE id = ?').get(id) as any;
+  const config = db.prepare('SELECT * FROM router_configs WHERE id = ?').get(id) as RouterConfigRow | undefined;
   if (!config) return null;
 
   if (enable && !config.parse_output) {
@@ -202,11 +229,11 @@ const toggleParseConfig = db.transaction((id: number, enable: boolean) => {
 });
 
 const updateConfigTx = db.transaction((id: number, body: UpdateRouterConfigRequest) => {
-  const existing = db.prepare('SELECT * FROM router_configs WHERE id = ?').get(id) as any;
+  const existing = db.prepare('SELECT * FROM router_configs WHERE id = ?').get(id) as RouterConfigRow | undefined;
   if (!existing) return null;
 
-  const sets: string[] = [];
-  const values: any[] = [];
+  const sets: string[] = ["updated_at = datetime('now')"];
+  const values: unknown[] = [];
   if (body.raw_config !== undefined) {
     sets.push('raw_config = ?');
     values.push(body.raw_config);
@@ -332,9 +359,15 @@ router.patch('/:id', (req, res) => {
   if (!verifyRouterConfigOwnership(req.params.id, projectId)) {
     return res.status(404).json({ error: 'Router config not found' });
   }
-  const body = req.body as UpdateRouterConfigRequest;
+  const body = req.body as UpdateRouterConfigRequest & { updated_at?: string };
   if (body.raw_config !== undefined && Buffer.byteLength(body.raw_config, 'utf8') > MAX_RAW_CONFIG_SIZE) {
     return res.status(400).json({ error: 'Raw config exceeds 50 MB limit' });
+  }
+  if (body.updated_at) {
+    const current = db.prepare('SELECT updated_at FROM router_configs WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { updated_at: string } | undefined;
+    if (current && current.updated_at !== body.updated_at) {
+      return res.status(409).json({ error: 'This router config was modified by another session. Please refresh and try again.' });
+    }
   }
   try {
     const result = updateConfigTx(Number(req.params.id), body);

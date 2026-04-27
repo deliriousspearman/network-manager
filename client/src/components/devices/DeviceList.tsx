@@ -1,24 +1,32 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
-import { ChevronUp, ChevronDown, Search, Download, Upload, Monitor } from 'lucide-react';
+import { ChevronUp, ChevronDown, Search, Download, Upload, Monitor, CheckSquare } from 'lucide-react';
 import { fetchDevicesPaged } from '../../api/devices';
-import { analyzePcap, analyzeArp } from '../../api/pcapImport';
+import BulkActionBar from './BulkActionBar';
+import TagFilterPopover from './TagFilterPopover';
+import { queryKeys } from '../../api/queryKeys';
+import { analyzePcap, analyzeArp, analyzeNmap } from '../../api/pcapImport';
 import { useProject } from '../../contexts/ProjectContext';
 import { useToast } from '../ui/Toast';
-import { getStorage, setStorage } from '../../utils/storage';
 import { usePersistedState } from '../../hooks/usePersistedState';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useColumnPrefs } from '../../hooks/useColumnPrefs';
+import { useBulkSelection } from '../../hooks/useBulkSelection';
 import { rowNavHandlers } from '../../utils/navigation';
-import LoadingSpinner from '../ui/LoadingSpinner';
+import { SkeletonTable } from '../ui/Skeleton';
 import Pagination from '../ui/Pagination';
 import PageHeader from '../layout/PageHeader';
 import EmptyState from '../ui/EmptyState';
+import ColumnMenu from '../ui/ColumnMenu';
 import PcapImportModal from './PcapImportModal';
 import CsvImportModal from './CsvImportModal';
 import ArpImportModal from './ArpImportModal';
+import NmapImportModal from './NmapImportModal';
 import { CredentialKey } from '../diagram/nodes/CredentialKey';
-import type { DeviceWithIps, PcapAnalyzeResult } from 'shared/types';
+import type { DeviceWithIps, PcapAnalyzeResult, NmapAnalyzeResult } from 'shared/types';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
+import { PAGE_LIMIT } from '../../utils/constants';
 
 type SortCol = 'name' | 'type' | 'hosting_type' | 'primary_ip' | 'os' | 'subnet_name' | 'status';
 
@@ -38,7 +46,15 @@ const COLUMNS: ColumnDef[] = [
     key: 'status', label: 'Status', defaultVisible: true, alwaysVisible: true,
     sortKey: 'status',
     thStyle: { width: '28px', padding: '0.6rem 0.25rem' },
-    render: (d) => <span className={`status-dot status-dot-${d.status || 'none'}`} />,
+    render: (d) => {
+      const label = d.status ? d.status.charAt(0).toUpperCase() + d.status.slice(1) : 'No status';
+      return (
+        <span title={label}>
+          <span className={`status-dot status-dot-${d.status || 'none'}`} aria-hidden="true" />
+          <span className="sr-only">Status: {label}</span>
+        </span>
+      );
+    },
     csvValue: (d) => d.status ?? '',
   },
   {
@@ -125,41 +141,7 @@ const COLUMNS: ColumnDef[] = [
   },
 ];
 
-const DEFAULT_VISIBLE = new Set(COLUMNS.filter(c => c.defaultVisible).map(c => c.key));
-const DEFAULT_ORDER = COLUMNS.map(c => c.key);
-
-interface ColConfig { visible: Set<string>; order: string[] }
-
-function loadColConfig(projectId: number): ColConfig {
-  const stored = getStorage(`deviceList.columns.${projectId}`);
-  if (!stored) return { visible: new Set(DEFAULT_VISIBLE), order: DEFAULT_ORDER };
-  try {
-    const cfg = JSON.parse(stored);
-    const validKeys = new Set(COLUMNS.map(c => c.key));
-
-    // Visibility
-    const vis = new Set<string>(
-      Array.isArray(cfg.visible) ? cfg.visible.filter((k: string) => validKeys.has(k)) : [...DEFAULT_VISIBLE],
-    );
-    for (const col of COLUMNS) { if (col.alwaysVisible) vis.add(col.key); }
-    if (vis.size === 0) for (const k of DEFAULT_VISIBLE) vis.add(k);
-
-    // Order — start from stored, append any missing keys
-    let order: string[] = Array.isArray(cfg.order) ? cfg.order.filter((k: string) => validKeys.has(k)) : [];
-    const inOrder = new Set(order);
-    for (const k of DEFAULT_ORDER) { if (!inOrder.has(k)) order.push(k); }
-
-    return { visible: vis, order };
-  } catch {
-    return { visible: new Set(DEFAULT_VISIBLE), order: DEFAULT_ORDER };
-  }
-}
-
-function saveColConfig(projectId: number, visible: Set<string>, order: string[]) {
-  setStorage(`deviceList.columns.${projectId}`, JSON.stringify({ visible: [...visible], order }));
-}
-
-const PAGE_LIMIT = 50;
+const thSortStyle: React.CSSProperties = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' };
 
 const MAX_PCAP_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -170,80 +152,23 @@ export default function DeviceList() {
   const toast = useToast();
   const [page, setPage] = useState(1);
   const [search, setSearch] = usePersistedState<string>(`deviceList.search.${projectId}`, '');
+  const debouncedSearch = useDebouncedValue(search);
   const [sortCol, setSortCol] = usePersistedState<SortCol>(`deviceList.sortCol.${projectId}`, 'name');
   const [sortDir, setSortDir] = usePersistedState<'asc' | 'desc'>(`deviceList.sortDir.${projectId}`, 'asc');
+  const [filterType, setFilterType] = usePersistedState<string>(`deviceList.filterType.${projectId}`, '');
+  const [filterHosting, setFilterHosting] = usePersistedState<string>(`deviceList.filterHosting.${projectId}`, '');
+  const [filterStatus, setFilterStatus] = usePersistedState<string>(`deviceList.filterStatus.${projectId}`, '');
+  const [filterTags, setFilterTags] = usePersistedState<string[]>(`deviceList.filterTags.${projectId}`, []);
 
-  // Column visibility & order
-  const [visibleCols, setVisibleCols] = useState<Set<string>>(() => loadColConfig(projectId).visible);
-  const [colOrder, setColOrder] = useState<string[]>(() => loadColConfig(projectId).order);
-  const [colMenu, setColMenu] = useState<{ x: number; y: number } | null>(null);
-  const colMenuRef = useRef<HTMLDivElement>(null);
-  const dragItem = useRef<string | null>(null);
-  const [dragOver, setDragOver] = useState<string | null>(null);
+  const cols = useColumnPrefs(COLUMNS, `deviceList.columns.${projectId}`);
 
-  const toggleColumn = useCallback((key: string) => {
-    setVisibleCols(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      saveColConfig(projectId, next, colOrder);
-      return next;
-    });
-  }, [projectId, colOrder]);
-
-  const handleDragStart = useCallback((key: string) => { dragItem.current = key; }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent, key: string) => {
-    e.preventDefault();
-    setDragOver(key);
-  }, []);
-
-  const handleDrop = useCallback((targetKey: string) => {
-    const srcKey = dragItem.current;
-    dragItem.current = null;
-    setDragOver(null);
-    if (!srcKey || srcKey === targetKey) return;
-    setColOrder(prev => {
-      const next = [...prev];
-      const srcIdx = next.indexOf(srcKey);
-      const tgtIdx = next.indexOf(targetKey);
-      if (srcIdx === -1 || tgtIdx === -1) return prev;
-      next.splice(srcIdx, 1);
-      next.splice(tgtIdx, 0, srcKey);
-      saveColConfig(projectId, visibleCols, next);
-      return next;
-    });
-  }, [projectId, visibleCols]);
-
-  const handleDragEnd = useCallback(() => { dragItem.current = null; setDragOver(null); }, []);
-
-  const resetColumns = useCallback(() => {
-    setVisibleCols(new Set(DEFAULT_VISIBLE));
-    setColOrder(DEFAULT_ORDER);
-    saveColConfig(projectId, new Set(DEFAULT_VISIBLE), DEFAULT_ORDER);
-  }, [projectId]);
-
-  const handleHeaderContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setColMenu({ x: e.clientX, y: e.clientY });
-  }, []);
-
-  // Close column menu on click-outside or Escape
-  useEffect(() => {
-    if (!colMenu) return;
-    const handleClick = (e: MouseEvent) => {
-      if (colMenuRef.current && !colMenuRef.current.contains(e.target as Node)) setColMenu(null);
-    };
-    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setColMenu(null); };
-    document.addEventListener('mousedown', handleClick);
-    document.addEventListener('keydown', handleKey);
-    return () => { document.removeEventListener('mousedown', handleClick); document.removeEventListener('keydown', handleKey); };
-  }, [colMenu]);
-
-  // PCAP / ARP import
+  // PCAP / ARP / Nmap import
   const pcapInputRef = useRef<HTMLInputElement>(null);
+  const nmapInputRef = useRef<HTMLInputElement>(null);
   const importMenuRef = useRef<HTMLDivElement>(null);
   const [importMenuOpen, setImportMenuOpen] = useState(false);
   const [importResult, setImportResult] = useState<{ data: PcapAnalyzeResult; source: 'pcap' | 'arp' } | null>(null);
+  const [nmapResult, setNmapResult] = useState<NmapAnalyzeResult | null>(null);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [arpModalOpen, setArpModalOpen] = useState(false);
 
@@ -261,16 +186,23 @@ export default function DeviceList() {
   const analyzePcapMut = useMutation({
     mutationFn: (payload: { filename: string; data: string }) => analyzePcap(projectId, payload),
     onSuccess: (data) => setImportResult({ data, source: 'pcap' }),
-    onError: () => toast('Failed to analyze PCAP file', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to analyze PCAP file', 'error'),
   });
 
   const analyzeArpMut = useMutation({
     mutationFn: (payload: { text: string }) => analyzeArp(projectId, payload),
     onSuccess: (data) => { setArpModalOpen(false); setImportResult({ data, source: 'arp' }); },
-    onError: () => toast('Failed to analyze ARP output', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to analyze ARP output', 'error'),
+  });
+
+  const analyzeNmapMut = useMutation({
+    mutationFn: (payload: { filename: string; text: string }) => analyzeNmap(projectId, payload),
+    onSuccess: (data) => setNmapResult(data),
+    onError: (e: Error) => toast(e.message || 'Failed to analyze Nmap file', 'error'),
   });
 
   const analyzePcapMutate = analyzePcapMut.mutate;
+  const analyzeNmapMutate = analyzeNmapMut.mutate;
 
   const handlePcapSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -288,9 +220,34 @@ export default function DeviceList() {
     reader.readAsDataURL(file);
   }, [analyzePcapMutate, toast]);
 
+  const handleNmapSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    if (file.size > MAX_PCAP_SIZE) {
+      toast('File too large (max 10 MB)', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      analyzeNmapMutate({ filename: file.name, text: reader.result as string });
+    };
+    reader.readAsText(file);
+  }, [analyzeNmapMutate, toast]);
+
+  const tagsKey = filterTags.length ? [...filterTags].sort().join(',') : '';
   const { data, isLoading } = useQuery({
-    queryKey: ['devices', projectId, 'paged', page, PAGE_LIMIT, search, sortCol, sortDir],
-    queryFn: () => fetchDevicesPaged(projectId, { page, limit: PAGE_LIMIT, search, sort: sortCol, order: sortDir }),
+    queryKey: queryKeys.devices.paged(projectId, {
+      page, limit: PAGE_LIMIT, search: debouncedSearch, sort: sortCol, dir: sortDir,
+      type: filterType, hostingType: filterHosting, status: filterStatus, tags: tagsKey,
+    }),
+    queryFn: () => fetchDevicesPaged(projectId, {
+      page, limit: PAGE_LIMIT, search: debouncedSearch, sort: sortCol, order: sortDir,
+      type: filterType || undefined,
+      hosting_type: filterHosting || undefined,
+      status: filterStatus || undefined,
+      tags: filterTags.length ? filterTags : undefined,
+    }),
     placeholderData: keepPreviousData,
   });
 
@@ -318,29 +275,40 @@ export default function DeviceList() {
     return sortDir === 'asc' ? <ChevronUp size={13} /> : <ChevronDown size={13} />;
   }
 
-  const colMap = new Map(COLUMNS.map(c => [c.key, c]));
-  const activeCols = colOrder.filter(k => visibleCols.has(k)).map(k => colMap.get(k)!).filter(Boolean);
-
   async function exportCsv() {
-    const { fetchDevicesPaged: fp } = await import('../../api/devices');
-    const all = await fp(projectId, { page: 1, limit: 9999, search, sort: sortCol, order: sortDir });
-    const exportCols = activeCols.filter(c => c.csvValue);
-    const rows = [exportCols.map(c => c.label)];
-    for (const d of all.items) {
+    const [{ fetchDevicesPaged }, { drainPaged, rowsToCsv, downloadCsv, CSV_EXPORT_MAX_ROWS }] = await Promise.all([
+      import('../../api/devices'),
+      import('../../utils/csvExport'),
+    ]);
+    const { items, truncated } = await drainPaged(
+      (p) => fetchDevicesPaged(projectId, {
+        ...p,
+        type: filterType || undefined,
+        hosting_type: filterHosting || undefined,
+        status: filterStatus || undefined,
+      }),
+      { search, sort: sortCol, order: sortDir },
+    );
+    const exportCols = cols.active.filter(c => c.csvValue);
+    const rows: (string | number | null | undefined)[][] = [exportCols.map(c => c.label)];
+    for (const d of items) {
       rows.push(exportCols.map(c => c.csvValue!(d)));
     }
-    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-    a.download = 'devices.csv';
-    a.click();
+    downloadCsv(rowsToCsv(rows), 'devices.csv');
+    if (truncated) toast(`Export truncated at ${CSV_EXPORT_MAX_ROWS.toLocaleString()} rows`, 'info');
   }
 
-  if (isLoading && !data) return <LoadingSpinner />;
-
   const base = `/p/${project.slug}`;
-  const thSortStyle: React.CSSProperties = { cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' };
   const items = data?.items ?? [];
+  const bulk = useBulkSelection<DeviceWithIps>(items);
+  const [selectMode, setSelectMode] = useState(false);
+
+  const selectedItems = selectMode ? items.filter(d => bulk.selectedIds.has(d.id)) : [];
+
+  const exitSelectMode = useCallback(() => {
+    setSelectMode(false);
+    bulk.clear();
+  }, [bulk]);
 
   return (
     <div>
@@ -355,11 +323,62 @@ export default function DeviceList() {
                 className="list-search-input"
                 value={search}
                 onChange={e => handleSearch(e.target.value)}
-                placeholder="Search"
+                placeholder="Search name, hostname, IP, MAC, OS, tags"
               />
             </div>
+            <select
+              className="list-filter-select"
+              value={filterType}
+              onChange={e => { setFilterType(e.target.value); setPage(1); }}
+              aria-label="Filter by type"
+            >
+              <option value="">All types</option>
+              {Object.entries(DEVICE_TYPE_LABELS).map(([k, label]) => (
+                <option key={k} value={k}>{label}</option>
+              ))}
+            </select>
+            <select
+              className="list-filter-select"
+              value={filterHosting}
+              onChange={e => { setFilterHosting(e.target.value); setPage(1); }}
+              aria-label="Filter by hosting type"
+            >
+              <option value="">All hosting</option>
+              <option value="baremetal">Baremetal</option>
+              <option value="vm">VM</option>
+              <option value="hypervisor">Hypervisor</option>
+            </select>
+            <select
+              className="list-filter-select"
+              value={filterStatus}
+              onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
+              aria-label="Filter by status"
+            >
+              <option value="">All statuses</option>
+              <option value="up">Up</option>
+              <option value="down">Down</option>
+              <option value="warning">Warning</option>
+              <option value="unknown">Unknown</option>
+              <option value="none">No status</option>
+            </select>
+            <TagFilterPopover
+              projectId={projectId}
+              selected={filterTags}
+              onChange={(tags) => { setFilterTags(tags); setPage(1); }}
+            />
             {data && data.total > 0 && (
-              <button className="btn btn-secondary btn-icon" onClick={exportCsv} title="Export CSV">
+              <button
+                className={`btn btn-secondary btn-icon${selectMode ? ' active' : ''}`}
+                onClick={() => { if (selectMode) exitSelectMode(); else setSelectMode(true); }}
+                title={selectMode ? 'Exit select mode' : 'Select devices for bulk actions'}
+                aria-label={selectMode ? 'Exit select mode' : 'Enter select mode'}
+                aria-pressed={selectMode}
+              >
+                <CheckSquare size={14} />
+              </button>
+            )}
+            {data && data.total > 0 && (
+              <button className="btn btn-secondary btn-icon" onClick={exportCsv} title="Export CSV" aria-label="Export CSV">
                 <Download size={14} />
               </button>
             )}
@@ -367,8 +386,8 @@ export default function DeviceList() {
               <button
                 className="btn btn-secondary btn-icon"
                 onClick={() => setImportMenuOpen(o => !o)}
-                disabled={analyzePcapMut.isPending || analyzeArpMut.isPending}
-                title={analyzePcapMut.isPending || analyzeArpMut.isPending ? 'Analyzing...' : 'Import devices'}
+                disabled={analyzePcapMut.isPending || analyzeArpMut.isPending || analyzeNmapMut.isPending}
+                title={analyzePcapMut.isPending || analyzeArpMut.isPending || analyzeNmapMut.isPending ? 'Analyzing...' : 'Import devices'}
               >
                 <Upload size={14} />
               </button>
@@ -380,6 +399,12 @@ export default function DeviceList() {
                       onClick={() => { setImportMenuOpen(false); pcapInputRef.current?.click(); }}
                     >
                       PCAP file (.pcap / .pcapng)
+                    </button>
+                    <button
+                      className="context-menu-item"
+                      onClick={() => { setImportMenuOpen(false); nmapInputRef.current?.click(); }}
+                    >
+                      Nmap XML (.xml)
                     </button>
                     <button
                       className="context-menu-item"
@@ -402,22 +427,53 @@ export default function DeviceList() {
         }
       />
 
-      {!isLoading && data?.total === 0 && !search ? (
+      {isLoading && !data ? (
+        <SkeletonTable rows={8} columns={cols.active.length || 8} />
+      ) : data?.total === 0 && !search && !filterType && !filterHosting && !filterStatus && filterTags.length === 0 ? (
         <EmptyState
           icon={<Monitor size={22} />}
           title="No devices yet"
           description="Track servers, workstations, routers, switches and more."
           action={<Link to={`${base}/devices/new`} className="btn btn-primary">+ Add Your First Device</Link>}
+          secondaryActions={
+            <>
+              <span>Or import from:</span>
+              <button type="button" onClick={() => nmapInputRef.current?.click()}>Nmap XML</button>
+              <button type="button" onClick={() => pcapInputRef.current?.click()}>PCAP</button>
+              <button type="button" onClick={() => setArpModalOpen(true)}>ARP table</button>
+              <button type="button" onClick={() => setCsvImportOpen(true)}>CSV</button>
+            </>
+          }
         />
-      ) : !isLoading && items.length === 0 ? (
-        <EmptyState title="No matches" description="No devices match your search." />
+      ) : items.length === 0 ? (
+        <EmptyState title="No matches" description="No devices match your filters." />
       ) : (
         <>
+          {selectMode && (
+            <BulkActionBar
+              projectId={projectId}
+              selectedIds={bulk.selectedIds}
+              selectedItems={selectedItems}
+              onClose={exitSelectMode}
+              onClear={bulk.clear}
+            />
+          )}
           <div className="card table-container">
             <table>
               <thead>
-                <tr onContextMenu={handleHeaderContextMenu}>
-                  {activeCols.map(col => (
+                <tr onContextMenu={cols.openMenuAt}>
+                  {selectMode && (
+                    <th style={{ width: '32px', padding: '0.6rem 0.25rem' }}>
+                      <input
+                        type="checkbox"
+                        aria-label="Select all visible"
+                        checked={bulk.allVisibleSelected}
+                        ref={el => { if (el) el.indeterminate = bulk.someVisibleSelected && !bulk.allVisibleSelected; }}
+                        onChange={bulk.toggleAll}
+                      />
+                    </th>
+                  )}
+                  {cols.active.map(col => (
                     <th
                       key={col.key}
                       style={{ ...(col.thStyle || {}), ...(col.sortKey ? thSortStyle : {}) }}
@@ -429,15 +485,41 @@ export default function DeviceList() {
                 </tr>
               </thead>
               <tbody>
-                {items.map((d: DeviceWithIps) => (
-                  <tr key={d.id} style={{ cursor: 'pointer' }} {...rowNavHandlers(`${base}/devices/${d.id}`, navigate)}>
-                    {activeCols.map(col => (
-                      <td key={col.key} style={col.thStyle?.textAlign ? { textAlign: col.thStyle.textAlign as any } : undefined}>
-                        {col.render(d)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
+                {items.map((d: DeviceWithIps) => {
+                  const isSelected = bulk.selectedIds.has(d.id);
+                  const rowProps = selectMode
+                    ? {
+                        onClick: () => bulk.toggle(d.id),
+                        style: { cursor: 'pointer' } as React.CSSProperties,
+                      }
+                    : {
+                        style: { cursor: 'pointer' } as React.CSSProperties,
+                        ...rowNavHandlers(`${base}/devices/${d.id}`, navigate),
+                      };
+                  return (
+                    <tr
+                      key={d.id}
+                      className={isSelected ? 'row-selected' : undefined}
+                      {...rowProps}
+                    >
+                      {selectMode && (
+                        <td style={{ padding: '0.6rem 0.25rem' }} onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${d.name}`}
+                            checked={isSelected}
+                            onChange={() => bulk.toggle(d.id)}
+                          />
+                        </td>
+                      )}
+                      {cols.active.map(col => (
+                        <td key={col.key} style={col.thStyle?.textAlign ? { textAlign: col.thStyle.textAlign as any } : undefined}>
+                          {col.render(d)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -446,12 +528,20 @@ export default function DeviceList() {
           )}
         </>
       )}
+
       <input
         ref={pcapInputRef}
         type="file"
         accept=".pcap,.pcapng,.cap"
         style={{ display: 'none' }}
         onChange={handlePcapSelect}
+      />
+      <input
+        ref={nmapInputRef}
+        type="file"
+        accept=".xml"
+        style={{ display: 'none' }}
+        onChange={handleNmapSelect}
       />
       {arpModalOpen && (
         <ArpImportModal
@@ -467,51 +557,41 @@ export default function DeviceList() {
           source={importResult.source}
           projectId={projectId}
           onClose={() => setImportResult(null)}
-          onApplied={() => queryClient.invalidateQueries({ queryKey: ['devices', projectId] })}
+          onApplied={() => queryClient.invalidateQueries({ queryKey: queryKeys.devices.all(projectId) })}
+        />
+      )}
+
+      {nmapResult && (
+        <NmapImportModal
+          result={nmapResult}
+          projectId={projectId}
+          onClose={() => setNmapResult(null)}
+          onApplied={() => queryClient.invalidateQueries({ queryKey: queryKeys.devices.all(projectId) })}
         />
       )}
 
       {csvImportOpen && (
         <CsvImportModal
           onClose={() => setCsvImportOpen(false)}
-          onImported={() => queryClient.invalidateQueries({ queryKey: ['devices', projectId] })}
+          onImported={() => queryClient.invalidateQueries({ queryKey: queryKeys.devices.all(projectId) })}
         />
       )}
 
-      {colMenu && (
-        <div
-          ref={colMenuRef}
-          className="column-menu"
-          style={{ top: colMenu.y, left: colMenu.x }}
-        >
-          <div className="column-menu-title">Toggle Columns</div>
-          {colOrder.map(key => {
-            const col = colMap.get(key);
-            if (!col) return null;
-            return (
-              <label
-                key={col.key}
-                className={`column-menu-item${col.alwaysVisible ? ' column-menu-item-disabled' : ''}${dragOver === col.key ? ' column-menu-item-dragover' : ''}`}
-                draggable
-                onDragStart={() => handleDragStart(col.key)}
-                onDragOver={(e) => handleDragOver(e, col.key)}
-                onDrop={() => handleDrop(col.key)}
-                onDragEnd={handleDragEnd}
-              >
-                <span className="column-menu-drag">⠿</span>
-                <input
-                  type="checkbox"
-                  checked={visibleCols.has(col.key)}
-                  disabled={col.alwaysVisible}
-                  onChange={() => toggleColumn(col.key)}
-                />
-                {col.label}
-              </label>
-            );
-          })}
-          <div className="column-menu-divider" />
-          <button className="column-menu-reset" onClick={resetColumns}>Reset to Default</button>
-        </div>
+      {cols.menu && (
+        <ColumnMenu
+          columns={COLUMNS}
+          order={cols.order}
+          visible={cols.visible}
+          position={cols.menu}
+          dragOver={cols.dragOver}
+          menuRef={cols.menuRef}
+          onToggle={cols.toggle}
+          onReset={cols.reset}
+          onDragStart={cols.handleDragStart}
+          onDragOver={cols.handleDragOver}
+          onDrop={cols.handleDrop}
+          onDragEnd={cols.handleDragEnd}
+        />
       )}
     </div>
   );

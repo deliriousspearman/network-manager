@@ -19,13 +19,21 @@ export async function exportBackup(projectId: number, includeCommandOutputs: boo
   URL.revokeObjectURL(url);
 }
 
-export async function importBackup(projectId: number, data: unknown): Promise<void> {
+export interface ImportBackupResult {
+  success: true;
+  // Per-field labels for any string values the server truncated to MAX_STR.
+  // Capped at 50 entries; an empty array means nothing was truncated.
+  truncatedFields: string[];
+}
+
+export async function importBackup(projectId: number, data: unknown): Promise<ImportBackupResult> {
   const res = await fetch(`${projectBase(projectId, 'backup')}/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) await throwApiError(res, 'Import failed');
+  return res.json();
 }
 
 export async function exportFullBackup(includeCommandOutputs: boolean, includeCredentials: boolean): Promise<void> {
@@ -46,11 +54,12 @@ export async function exportFullBackup(includeCommandOutputs: boolean, includeCr
   URL.revokeObjectURL(url);
 }
 
-export async function importFullBackup(data: unknown): Promise<void> {
+export async function importFullBackup(data: unknown): Promise<ImportBackupResult> {
   const res = await fetch('/api/backup/import', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   });
   if (!res.ok) await throwApiError(res, 'Import failed');
+  return res.json();
 }

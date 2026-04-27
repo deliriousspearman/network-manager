@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
-import { parsePcap } from '../parsers/pcap.js';
+import { parsePcap, type PcapHost } from '../parsers/pcap.js';
 import { parseArp } from '../parsers/arp.js';
-import type { PcapApplyAction, PcapAnalyzedHost, DeviceType } from 'shared/types';
+import { parseNmapXml, type NmapAnalyzedHost as ParsedNmapHost } from '../parsers/nmapXml.js';
+import type { PcapApplyAction, PcapAnalyzedHost, DeviceType, NmapAnalyzedHost, NmapApplyAction } from 'shared/types';
+import { DEVICE_IMPORT_MAX_BYTES as MAX_SIZE } from '../config/limits.js';
 
 const router = Router({ mergeParams: true });
-
-const MAX_SIZE = 10 * 1024 * 1024; // 10 MB
 
 const DEVICE_TYPES = ['server', 'workstation', 'router', 'switch', 'nas', 'firewall', 'access_point', 'iot', 'camera', 'phone'];
 
@@ -52,19 +52,19 @@ const updateMac = db.prepare('UPDATE devices SET mac_address = ? WHERE id = ?');
 
 // ── Shared host matching ─────────────────────────────────────────────────
 
-function matchHosts(hosts: { ip: string; macs: string[] }[], projectId: number): PcapAnalyzedHost[] {
+function matchHosts(hosts: PcapHost[], projectId: number): PcapAnalyzedHost[] {
   return hosts.map(host => {
     const ipMatch = findDeviceByIp.get(projectId, host.ip) as { id: number; name: string } | undefined;
     if (ipMatch) {
-      return { ...host, ports: (host as any).ports ?? [], packetCount: (host as any).packetCount ?? 1, matchedDevice: { id: ipMatch.id, name: ipMatch.name, matchType: 'ip' as const } };
+      return { ...host, matchedDevice: { id: ipMatch.id, name: ipMatch.name, matchType: 'ip' as const } };
     }
     for (const mac of host.macs) {
       const macMatch = findDeviceByMac.get(projectId, mac) as { id: number; name: string } | undefined;
       if (macMatch) {
-        return { ...host, ports: (host as any).ports ?? [], packetCount: (host as any).packetCount ?? 1, matchedDevice: { id: macMatch.id, name: macMatch.name, matchType: 'mac' as const } };
+        return { ...host, matchedDevice: { id: macMatch.id, name: macMatch.name, matchType: 'mac' as const } };
       }
     }
-    return { ...host, ports: (host as any).ports ?? [], packetCount: (host as any).packetCount ?? 1, matchedDevice: null };
+    return { ...host, matchedDevice: null };
   });
 }
 
@@ -225,6 +225,147 @@ router.post('/apply', (req, res) => {
   } catch (e) {
     console.error('PCAP apply error:', e);
     res.status(500).json({ error: 'Failed to apply PCAP import actions' });
+  }
+});
+
+// ── POST /nmap/analyze ───────────────────────────────────────────────────
+
+function decodePayload(raw: { data?: string; text?: string }): string | { error: string } {
+  if (raw.text && typeof raw.text === 'string') return raw.text;
+  if (raw.data && typeof raw.data === 'string') {
+    try {
+      return Buffer.from(raw.data, 'base64').toString('utf-8');
+    } catch {
+      return { error: 'Invalid base64 data' };
+    }
+  }
+  return { error: 'text or data (base64) is required' };
+}
+
+function matchNmapHosts(hosts: ParsedNmapHost[], projectId: number): NmapAnalyzedHost[] {
+  return hosts.map(host => {
+    const ipMatch = findDeviceByIp.get(projectId, host.ip) as { id: number; name: string } | undefined;
+    if (ipMatch) {
+      return { ...host, matchedDevice: { id: ipMatch.id, name: ipMatch.name, matchType: 'ip' as const } };
+    }
+    for (const mac of host.macs) {
+      const macMatch = findDeviceByMac.get(projectId, mac) as { id: number; name: string } | undefined;
+      if (macMatch) {
+        return { ...host, matchedDevice: { id: macMatch.id, name: macMatch.name, matchType: 'mac' as const } };
+      }
+    }
+    return { ...host, matchedDevice: null };
+  });
+}
+
+router.post('/nmap/analyze', (req, res) => {
+  const projectId = res.locals.projectId as number;
+  const { filename } = req.body as { filename?: string; data?: string; text?: string };
+
+  const decoded = decodePayload(req.body);
+  if (typeof decoded !== 'string') return res.status(400).json(decoded);
+  if (Buffer.byteLength(decoded, 'utf-8') > MAX_SIZE) {
+    return res.status(400).json({ error: 'File too large (max 10 MB)' });
+  }
+
+  let parsed: ReturnType<typeof parseNmapXml>;
+  try {
+    parsed = parseNmapXml(decoded);
+  } catch (e) {
+    return res.status(400).json({ error: (e as Error).message });
+  }
+
+  res.json({
+    hosts: matchNmapHosts(parsed.hosts, projectId),
+    scanInfo: parsed.scanInfo,
+    filename: filename || 'scan.xml',
+  });
+});
+
+// ── POST /nmap/apply ─────────────────────────────────────────────────────
+
+const applyNmapActions = db.transaction((actions: NmapApplyAction[], projectId: number) => {
+  let created = 0;
+  let merged = 0;
+  let skipped = 0;
+  let portsAdded = 0;
+
+  for (const action of actions) {
+    if (action.action === 'skip') { skipped++; continue; }
+
+    if (action.action === 'create') {
+      const name = action.newDeviceName?.trim() || action.hostnames[0] || action.ip;
+      const type = (action.newDeviceType && DEVICE_TYPES.includes(action.newDeviceType) ? action.newDeviceType : 'server') as DeviceType;
+      const mac = action.macs.length > 0 ? action.macs[0] : null;
+
+      const result = insertDevice.run(name, type, mac, projectId, null, null);
+      const deviceId = result.lastInsertRowid as number;
+
+      insertIp.run(deviceId, action.ip, null, 1);
+
+      if (action.addPorts !== false) {
+        for (const p of action.ports) {
+          const svc = p.service ? `${p.protocol}/${p.port} ${p.service}${p.version ? ' ' + p.version : ''}` : `${p.protocol}/${p.port}`;
+          insertPort.run(deviceId, projectId, p.port, p.state.toUpperCase(), svc);
+          portsAdded++;
+        }
+      }
+
+      created++;
+      continue;
+    }
+
+    if (action.action === 'merge' && action.mergeDeviceId) {
+      const device = getDevice.get(action.mergeDeviceId, projectId) as { id: number; mac_address: string | null } | undefined;
+      if (!device) { skipped++; continue; }
+
+      if (!ipExists.get(device.id, action.ip)) {
+        insertIp.run(device.id, action.ip, null, 0);
+      }
+
+      if (!device.mac_address && action.macs.length > 0) {
+        updateMac.run(action.macs[0], device.id);
+      }
+
+      if (action.addPorts !== false) {
+        for (const p of action.ports) {
+          if (!portExists.get(device.id, p.port, projectId)) {
+            const svc = p.service ? `${p.protocol}/${p.port} ${p.service}${p.version ? ' ' + p.version : ''}` : `${p.protocol}/${p.port}`;
+            insertPort.run(device.id, projectId, p.port, p.state.toUpperCase(), svc);
+            portsAdded++;
+          }
+        }
+      }
+
+      merged++;
+    }
+  }
+
+  return { created, merged, skipped, portsAdded };
+});
+
+router.post('/nmap/apply', (req, res) => {
+  const projectId = res.locals.projectId as number;
+  const { actions } = req.body as { actions?: NmapApplyAction[] };
+
+  if (!actions || !Array.isArray(actions) || actions.length === 0) {
+    return res.status(400).json({ error: 'actions array is required' });
+  }
+
+  try {
+    const result = applyNmapActions(actions, projectId);
+
+    logActivity({
+      projectId,
+      action: 'imported_nmap',
+      resourceType: 'nmap',
+      details: result,
+    });
+
+    res.json(result);
+  } catch (e) {
+    console.error('Nmap apply error:', e);
+    res.status(500).json({ error: 'Failed to apply Nmap import actions' });
   }
 });
 

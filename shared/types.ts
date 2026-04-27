@@ -13,7 +13,7 @@ export const DEVICE_TYPE_LABELS: Record<DeviceType, string> = {
   camera: 'Camera',
   phone: 'Phone',
 };
-export type CommandType = 'ps' | 'netstat' | 'last' | 'ip_a' | 'mount' | 'ip_r' | 'freeform' | 'systemctl_status' | 'arp';
+export type CommandType = 'ps' | 'netstat' | 'last' | 'ip_a' | 'mount' | 'ip_r' | 'freeform' | 'systemctl_status' | 'arp' | 'user_history';
 export type ConnectionType = 'ethernet' | 'wifi' | 'vpn' | 'fiber' | 'serial';
 export type HostingType = 'baremetal' | 'vm' | 'hypervisor';
 
@@ -112,6 +112,7 @@ export interface Connection {
   label_color: string | null;
   label_bg_color: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 export interface CommandOutput {
@@ -122,6 +123,7 @@ export interface CommandOutput {
   captured_at: string;
   title: string | null;
   parse_output: number;
+  updated_at: string;
 }
 
 export interface ParsedProcess {
@@ -201,6 +203,14 @@ export interface ParsedArpEntry {
   interface_name: string | null;
 }
 
+export interface ParsedUserHistoryEntry {
+  id: number;
+  output_id: number;
+  line_no: number;
+  timestamp: string | null;
+  command: string;
+}
+
 export interface CommandOutputWithParsed extends CommandOutput {
   parsed_processes?: ParsedProcess[];
   parsed_connections?: ParsedNetConnection[];
@@ -210,6 +220,14 @@ export interface CommandOutputWithParsed extends CommandOutput {
   parsed_routes?: ParsedRoute[];
   parsed_services?: ParsedService[];
   parsed_arp?: ParsedArpEntry[];
+  parsed_user_history?: ParsedUserHistoryEntry[];
+  // Pagination metadata for the parsed_* slice. When parsed_truncated is
+  // true, the client is showing parsed_limit rows starting at parsed_offset
+  // out of parsed_total — typically prompts a "showing first N of M" banner.
+  parsed_total?: number;
+  parsed_limit?: number;
+  parsed_offset?: number;
+  parsed_truncated?: boolean;
 }
 
 // Diagram types
@@ -260,6 +278,9 @@ export interface NodePrefs {
   borderStyle?: string;
   borderRadius?: string;
   borderWidth?: string;
+  // When true, the device node renders only its primary IP. Default (undefined
+  // or false) renders the full IP list, primary first. Per-device opt-in.
+  primaryIpOnly?: boolean;
 }
 
 export interface LegendItem {
@@ -321,10 +342,89 @@ export interface DiagramData {
   annotations: DiagramAnnotation[];
   views: DiagramView[];
   current_view_id: number;
-  device_icon_overrides: number[];
-  type_default_icons: string[];
-  agent_type_default_icons: string[];
+  device_icon_overrides: { device_id: number; icon_source: 'upload' | 'library'; library_id: string | null; library_icon_key: string | null; color: string | null }[];
+  type_default_icons: { device_type: string; icon_source: 'upload' | 'library'; library_id: string | null; library_icon_key: string | null; color: string | null }[];
+  agent_types: { id: number; key: string; icon_source: 'builtin' | 'upload'; icon_builtin_key: string | null; has_upload: number }[];
   diagram_images: DiagramImage[];
+}
+
+// ---- Agent Network Map ----
+
+export interface AgentDiagramView {
+  id: number;
+  project_id: number;
+  name: string;
+  is_default: number;
+  created_at: string;
+}
+
+export interface AgentConnection {
+  id: number;
+  project_id: number;
+  source_agent_id: number | null;
+  target_agent_id: number | null;
+  source_image_id: number | null;
+  target_image_id: number | null;
+  label: string | null;
+  connection_type: string;
+  edge_color: string | null;
+  edge_width: number | null;
+  label_color: string | null;
+  label_bg_color: string | null;
+  source_handle: string | null;
+  target_handle: string | null;
+  source_port: string | null;
+  target_port: string | null;
+  created_at: string;
+}
+
+export interface AgentDiagramNode extends AgentWithDevice {
+  x: number;
+  y: number;
+}
+
+export interface AgentDiagramAnnotation {
+  id: number;
+  project_id: number;
+  view_id: number;
+  x: number;
+  y: number;
+  text: string;
+  font_size: number;
+  color: string | null;
+  created_at: string;
+}
+
+export type LabelPlacementV = 'above' | 'middle' | 'below';
+export type LabelPlacementH = 'left' | 'middle' | 'right';
+
+export interface AgentDiagramImage {
+  id: number;
+  project_id: number;
+  view_id: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  file_path: string;
+  filename: string | null;
+  mime_type: string | null;
+  label: string | null;
+  label_placement_v: LabelPlacementV;
+  label_placement_h: LabelPlacementH;
+  created_at: string;
+}
+
+export interface AgentDiagramData {
+  agents: AgentDiagramNode[];
+  all_agents: AgentWithDevice[];
+  connections: AgentConnection[];
+  annotations: AgentDiagramAnnotation[];
+  images: AgentDiagramImage[];
+  agent_types: AgentType[];
+  views: AgentDiagramView[];
+  current_view_id: number;
+  legend_items: LegendItem[];
 }
 
 // API request types
@@ -382,6 +482,7 @@ export interface UpdateCommandOutputRequest {
   raw_output?: string;
   captured_at?: string;
   title?: string;
+  updated_at?: string;
 }
 
 // Router config types
@@ -426,6 +527,7 @@ export interface RouterConfig {
   domain: string | null;
   timezone: string | null;
   ntp_servers: string | null; // JSON array
+  updated_at: string;
 }
 
 export interface ParsedRouterInterface {
@@ -523,6 +625,7 @@ export interface UpdateRouterConfigRequest {
   captured_at?: string;
   title?: string;
   vendor?: RouterVendor;
+  updated_at?: string;
 }
 
 export interface AppSettings {
@@ -548,6 +651,7 @@ export interface HighlightRule {
   color: string;
   text_color: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 export const CREDENTIAL_TYPES = ['SSH', 'RDP', 'HTTP', 'SNMP', 'SQL', 'VPN', 'SSH Key', 'Other'] as const;
@@ -566,11 +670,38 @@ export interface Credential {
   hidden: number;
   created_at: string;
   updated_at: string;
+  last_used_at: string | null;
 }
 
 export interface CredentialWithDevice extends Credential {
   device_name: string | null;
   has_file: boolean;
+}
+
+export type CredentialPasswordHistoryStatus = 'previous' | 'invalid';
+
+export interface CredentialPasswordHistoryEntry {
+  id: number;
+  credential_id: number;
+  password: string | null;
+  file_name: string | null;
+  status: CredentialPasswordHistoryStatus;
+  note: string | null;
+  created_at: string;
+  has_file: boolean;
+}
+
+export interface CreateCredentialHistoryEntryRequest {
+  password?: string | null;
+  file_name?: string | null;
+  file_data?: string | null;
+  status: CredentialPasswordHistoryStatus;
+  note?: string | null;
+}
+
+export interface UpdateCredentialHistoryEntryRequest {
+  status?: CredentialPasswordHistoryStatus;
+  note?: string | null;
 }
 
 export interface ActivityLog {
@@ -583,6 +714,8 @@ export interface ActivityLog {
   resource_name: string | null;
   details: string | null;
   created_at: string;
+  can_undo?: number;
+  undone_at?: string | null;
 }
 
 export interface CreateCredentialRequest {
@@ -614,6 +747,7 @@ export interface Project {
   short_name: string;
   description: string | null;
   about_title: string | null;
+  image_mime_type: string | null;
   device_count?: number;
   subnet_count?: number;
   created_at: string;
@@ -673,15 +807,25 @@ export interface UpdateTimelineEntryRequest {
   category?: TimelineCategory;
 }
 
-// Agent types
-export const AGENT_TYPES = ['wazuh', 'zabbix', 'elk', 'prometheus', 'grafana', 'nagios', 'datadog', 'splunk', 'ossec', 'custom'] as const;
-export type AgentType = typeof AGENT_TYPES[number];
+// Built-in agent icon keys — shipped client-side at client/src/assets/agent-icons/.
+// Used by the icon picker; the server only validates the key, never serves the file.
+export const BUILTIN_AGENT_ICON_KEYS = ['wazuh', 'zabbix', 'elk', 'prometheus', 'grafana', 'nagios', 'datadog', 'splunk', 'ossec', 'custom'] as const;
+export type BuiltinAgentIconKey = typeof BUILTIN_AGENT_ICON_KEYS[number];
 
-export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
-  wazuh: 'Wazuh', zabbix: 'Zabbix', elk: 'ELK', prometheus: 'Prometheus',
-  grafana: 'Grafana', nagios: 'Nagios', datadog: 'Datadog', splunk: 'Splunk',
-  ossec: 'OSSEC', custom: 'Custom',
-};
+export interface AgentType {
+  id: number;
+  project_id: number;
+  key: string;
+  label: string;
+  icon_source: 'builtin' | 'upload';
+  icon_builtin_key: string | null;
+  filename: string | null;
+  mime_type: string | null;
+  has_upload?: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
 
 export const AGENT_STATUSES = ['active', 'inactive', 'error', 'unknown'] as const;
 export type AgentStatus = typeof AGENT_STATUSES[number];
@@ -694,7 +838,7 @@ export interface Agent {
   id: number;
   project_id: number;
   name: string;
-  agent_type: AgentType;
+  agent_type: string;
   device_id: number | null;
   checkin_schedule: string | null;
   config: string | null;
@@ -713,7 +857,7 @@ export interface AgentWithDevice extends Agent {
 
 export interface CreateAgentRequest {
   name: string;
-  agent_type: AgentType;
+  agent_type: string;
   device_id?: number | null;
   checkin_schedule?: string;
   config?: string;
@@ -761,4 +905,187 @@ export interface PcapApplyResult {
   created: number;
   merged: number;
   skipped: number;
+}
+
+// Nmap import types
+export interface NmapDiscoveredPort {
+  port: number;
+  protocol: 'tcp' | 'udp';
+  state: string;
+  service?: string;
+  version?: string;
+}
+
+export interface NmapAnalyzedHost {
+  ip: string;
+  macs: string[];
+  hostnames: string[];
+  osGuess: string | null;
+  ports: NmapDiscoveredPort[];
+  matchedDevice: { id: number; name: string; matchType: 'ip' | 'mac' } | null;
+}
+
+export interface NmapAnalyzeResult {
+  hosts: NmapAnalyzedHost[];
+  scanInfo: { startedAt?: string; args?: string };
+  filename: string;
+}
+
+export interface NmapApplyAction {
+  ip: string;
+  macs: string[];
+  hostnames: string[];
+  ports: NmapDiscoveredPort[];
+  action: 'create' | 'merge' | 'skip';
+  mergeDeviceId?: number;
+  newDeviceName?: string;
+  newDeviceType?: DeviceType;
+  addPorts?: boolean;
+}
+
+export interface NmapApplyResult {
+  created: number;
+  merged: number;
+  skipped: number;
+  portsAdded: number;
+}
+
+// Draw.io import types
+export interface DrawioSubnetCandidate {
+  cellId: string;
+  name: string;
+  cidr: string | null;
+  vlan_id: number | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface DrawioDeviceCandidate {
+  cellId: string;
+  name: string;
+  type: DeviceType;
+  primary_ip: string | null;
+  // Hostname / MAC pulled out of the cell's label when present
+  // (e.g. multi-line "name<br>IP: ...<br>MAC: aa:bb:..."). null when absent.
+  hostname: string | null;
+  mac_address: string | null;
+  // Set when the drawio shape key matched one of our bundled icon library
+  // entries — the importer uses these to write a device_icon_overrides row.
+  library_id: string | null;
+  library_icon_key: string | null;
+  subnetCellId: string | null;
+  x: number;
+  y: number;
+  isClassified: boolean; // false → came from the unclassified bucket
+}
+
+export interface DrawioImageCandidate {
+  cellId: string;
+  filename: string;
+  mime_type: string;
+  data: string; // base64
+  label: string | null;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface DrawioConnectionCandidate {
+  cellId: string;
+  sourceCellId: string;
+  targetCellId: string;
+  label: string | null;
+  connection_type: string;
+  edge_color: string | null;
+  edge_width: number | null;
+}
+
+export interface DrawioExtraction {
+  filename: string;
+  subnets: DrawioSubnetCandidate[];
+  devices: DrawioDeviceCandidate[];
+  images: DrawioImageCandidate[];
+  connections: DrawioConnectionCandidate[];
+}
+
+export interface DrawioAnalyzedSubnet extends DrawioSubnetCandidate {
+  matchedSubnet: { id: number; name: string; matchType: 'cidr' | 'vlan_name' } | null;
+}
+
+export interface DrawioAnalyzedDevice extends DrawioDeviceCandidate {
+  matchedDevice: { id: number; name: string; matchType: 'ip' | 'name' } | null;
+}
+
+export interface DrawioAnalyzeResult {
+  filename: string;
+  subnets: DrawioAnalyzedSubnet[];
+  devices: DrawioAnalyzedDevice[];
+  images: DrawioImageCandidate[];
+  connections: DrawioConnectionCandidate[];
+}
+
+export type DrawioApplyAction =
+  | {
+      kind: 'subnet';
+      cellId: string;
+      action: 'create' | 'merge' | 'skip';
+      name: string;
+      cidr: string | null;
+      vlan_id: number | null;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      mergeSubnetId?: number;
+    }
+  | {
+      kind: 'device';
+      cellId: string;
+      action: 'create' | 'merge' | 'skip';
+      name: string;
+      type: DeviceType;
+      primary_ip: string | null;
+      hostname: string | null;
+      mac_address: string | null;
+      library_id: string | null;
+      library_icon_key: string | null;
+      subnetCellId: string | null;
+      x: number;
+      y: number;
+      mergeDeviceId?: number;
+    }
+  | {
+      kind: 'image';
+      cellId: string;
+      action: 'create' | 'skip';
+      filename: string;
+      mime_type: string;
+      data: string;
+      label: string | null;
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      addToLibrary: boolean;
+      placeOnDiagram: boolean;
+    }
+  | {
+      kind: 'connection';
+      cellId: string;
+      sourceCellId: string;
+      targetCellId: string;
+      label: string | null;
+      connection_type: string;
+      edge_color: string | null;
+      edge_width: number | null;
+    };
+
+export interface DrawioApplyResult {
+  subnets: { created: number; merged: number; skipped: number };
+  devices: { created: number; merged: number; skipped: number };
+  images: { libraryAdded: number; diagramPlaced: number; skipped: number };
+  connections: { created: number; skipped: number };
 }

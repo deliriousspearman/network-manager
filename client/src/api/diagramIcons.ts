@@ -6,9 +6,23 @@ function base(projectId: number) {
   return projectBase(projectId, 'diagram-icons');
 }
 
+export type IconUploadPayload =
+  | { icon_source?: 'upload'; filename: string; mime_type: string; data: string; color?: string | null }
+  | { icon_source: 'library'; library_id: string; library_icon_key: string; color?: string | null };
+
 // ── Type default icons ───────────────────────────────────────
 
-export async function fetchTypeDefaults(projectId: number): Promise<{ id: number; device_type: string; filename: string }[]> {
+export interface TypeDefaultRow {
+  id: number;
+  device_type: string;
+  filename: string | null;
+  icon_source: 'upload' | 'library';
+  library_id: string | null;
+  library_icon_key: string | null;
+  color: string | null;
+}
+
+export async function fetchTypeDefaults(projectId: number): Promise<TypeDefaultRow[]> {
   const res = await fetch(`${base(projectId)}/type-defaults`);
   if (!res.ok) await throwApiError(res, 'Failed to fetch type default icons');
   return res.json();
@@ -18,7 +32,7 @@ export function typeDefaultIconUrl(projectId: number, deviceType: string): strin
   return `${base(projectId)}/type-defaults/${deviceType}/image`;
 }
 
-export async function uploadTypeDefault(projectId: number, deviceType: string, payload: { filename: string; mime_type: string; data: string }): Promise<void> {
+export async function uploadTypeDefault(projectId: number, deviceType: string, payload: IconUploadPayload): Promise<void> {
   const res = await fetch(`${base(projectId)}/type-defaults/${deviceType}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -32,39 +46,13 @@ export async function deleteTypeDefault(projectId: number, deviceType: string): 
   if (!res.ok) await throwApiError(res, 'Failed to delete type default icon');
 }
 
-// ── Agent type default icons ─────────────────────────────────
-
-export async function fetchAgentTypeDefaults(projectId: number): Promise<{ id: number; agent_type: string; filename: string }[]> {
-  const res = await fetch(`${base(projectId)}/agent-type-defaults`);
-  if (!res.ok) await throwApiError(res, 'Failed to fetch agent type default icons');
-  return res.json();
-}
-
-export function agentTypeDefaultIconUrl(projectId: number, agentType: string): string {
-  return `${base(projectId)}/agent-type-defaults/${agentType}/image`;
-}
-
-export async function uploadAgentTypeDefault(projectId: number, agentType: string, payload: { filename: string; mime_type: string; data: string }): Promise<void> {
-  const res = await fetch(`${base(projectId)}/agent-type-defaults/${agentType}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  });
-  if (!res.ok) await throwApiError(res, 'Failed to upload agent type default icon');
-}
-
-export async function deleteAgentTypeDefault(projectId: number, agentType: string): Promise<void> {
-  const res = await fetch(`${base(projectId)}/agent-type-defaults/${agentType}`, { method: 'DELETE' });
-  if (!res.ok) await throwApiError(res, 'Failed to delete agent type default icon');
-}
-
 // ── Per-device icon overrides ────────────────────────────────
 
 export function deviceIconOverrideUrl(projectId: number, deviceId: number): string {
   return `${base(projectId)}/device/${deviceId}/image`;
 }
 
-export async function uploadDeviceIconOverride(projectId: number, deviceId: number, payload: { filename: string; mime_type: string; data: string }): Promise<void> {
+export async function uploadDeviceIconOverride(projectId: number, deviceId: number, payload: IconUploadPayload): Promise<void> {
   const res = await fetch(`${base(projectId)}/device/${deviceId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

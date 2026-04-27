@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useMutation } from '@tanstack/react-query';
 import type { PcapAnalyzeResult, PcapAnalyzedHost, PcapApplyAction, DeviceType } from 'shared/types';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
 import { applyPcapActions } from '../../api/pcapImport';
-import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useToast } from '../ui/Toast';
+import Modal from '../ui/Modal';
+import PortsList from '../ui/PortsList';
 
 interface Props {
   result: PcapAnalyzeResult;
@@ -29,27 +29,7 @@ function defaultAction(host: PcapAnalyzedHost): HostAction {
   };
 }
 
-function PortsList({ ports }: { ports: { port: number; protocol: string }[] }) {
-  const max = 4;
-  const shown = ports.slice(0, max);
-  const rest = ports.length - max;
-  return (
-    <span>
-      {shown.map((p, i) => (
-        <span key={i}>
-          {i > 0 && ', '}
-          <span className="badge badge-neutral" style={{ fontSize: '0.72rem', padding: '1px 5px' }}>
-            {p.port}/{p.protocol}
-          </span>
-        </span>
-      ))}
-      {rest > 0 && <span style={{ color: 'var(--color-text-secondary)', fontSize: '0.78rem' }}> +{rest} more</span>}
-    </span>
-  );
-}
-
 export default function PcapImportModal({ result, projectId, source, onClose, onApplied }: Props) {
-  const trapRef = useFocusTrap<HTMLDivElement>();
   const toast = useToast();
 
   const [actions, setActions] = useState<Map<string, HostAction>>(() => {
@@ -80,7 +60,7 @@ export default function PcapImportModal({ result, projectId, source, onClose, on
       onApplied();
       onClose();
     },
-    onError: () => toast('Failed to apply PCAP import', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to apply PCAP import', 'error'),
   });
 
   const handleApply = () => {
@@ -101,19 +81,17 @@ export default function PcapImportModal({ result, projectId, source, onClose, on
 
   const actionCount = [...actions.values()].filter(a => a.action !== 'skip').length;
 
-  return createPortal(
-    <div className="confirm-overlay" onClick={onClose}>
-      <div
-        className="confirm-dialog"
-        ref={trapRef}
-        style={{ maxWidth: 850, width: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="confirm-dialog-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+  return (
+    <Modal
+      onClose={onClose}
+      style={{ maxWidth: 850, width: '95vw', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }}
+      title={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span>{source === 'arp' ? 'ARP Import' : 'PCAP Import'}</span>
           <button className="btn btn-secondary btn-sm" onClick={onClose} style={{ padding: '0.15rem 0.5rem' }}>&times;</button>
         </div>
-
+      }
+    >
         <div style={{ padding: '0 1rem', fontSize: '0.85rem', color: 'var(--color-text-secondary)' }}>
           Found <strong>{result.hosts.length}</strong> host{result.hosts.length !== 1 ? 's' : ''} in{' '}
           <strong>{result.totalPackets.toLocaleString()}</strong> {source === 'arp' ? 'entries' : 'packets'} from <em>{result.filename}</em>
@@ -147,7 +125,7 @@ export default function PcapImportModal({ result, projectId, source, onClose, on
                       <td style={{ fontFamily: 'monospace', fontSize: '0.78rem', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {host.macs[0] || '—'}
                       </td>
-                      <td>{host.ports.length > 0 ? <PortsList ports={host.ports} /> : '—'}</td>
+                      <td>{host.ports.length > 0 ? <PortsList ports={host.ports} max={4} /> : '—'}</td>
                       <td>{host.packetCount}</td>
                       <td>
                         {host.matchedDevice ? (
@@ -213,8 +191,6 @@ export default function PcapImportModal({ result, projectId, source, onClose, on
             </button>
           )}
         </div>
-      </div>
-    </div>,
-    document.body,
+    </Modal>
   );
 }

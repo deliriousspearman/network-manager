@@ -17,6 +17,7 @@ import {
   PanelLeftOpen,
   Clock,
   Bot,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import { ProjectContext } from '../../contexts/ProjectContext';
@@ -24,6 +25,7 @@ import { fetchProjects } from '../../api/projects';
 import ProjectSwitcher from './ProjectSwitcher';
 import CollapsedProjectFlyout from './CollapsedProjectFlyout';
 import { getStorage, setStorage } from '../../utils/storage';
+import { projectImageUrl } from '../../utils/projectAvatar';
 
 function getInitialTheme(): 'light' | 'dark' {
   const stored = getStorage('theme');
@@ -62,10 +64,29 @@ export default function Sidebar() {
   }, [collapsed]);
 
   const [flyoutOpen, setFlyoutOpen] = useState(false);
-  const toggleTheme = () => setTheme(t => t === 'light' ? 'dark' : 'light');
+  const [pendingSlug, setPendingSlug] = useState<string | null>(null);
+  const toggleTheme = () => {
+    // Suppress transitions for one paint so buttons/inputs/links repaint in
+    // lockstep with the rest of the page (otherwise their background/color
+    // transitions fire on the variable swap and trail behind). Two rAFs:
+    // first commits the new data-theme attribute, second clears the class
+    // so hover/focus polish resumes immediately afterwards.
+    const root = document.documentElement;
+    root.classList.add('theme-changing');
+    setTheme(t => t === 'light' ? 'dark' : 'light');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      root.classList.remove('theme-changing');
+    }));
+  };
 
-  const projectSlug = projectCtx?.project?.slug;
+  const projectSlug = projectCtx?.project?.slug || getStorage('last-project-slug') || undefined;
   const basePath = projectSlug ? `/p/${projectSlug}` : '/p/default';
+
+  useEffect(() => {
+    if (pendingSlug && projectCtx?.project?.slug === pendingSlug) {
+      setPendingSlug(null);
+    }
+  }, [pendingSlug, projectCtx?.project?.slug]);
 
   const projectSections: NavSection[] = [
     {
@@ -96,6 +117,7 @@ export default function Sidebar() {
       items: [
         { to: `${basePath}/settings`, label: 'Settings', icon: Settings },
         { to: `${basePath}/logs`, label: 'Activity Log', icon: ScrollText },
+        { to: `${basePath}/trash`, label: 'Trash', icon: Trash2 },
       ],
     },
   ];
@@ -109,7 +131,10 @@ export default function Sidebar() {
   };
 
   function switchProject(slug: string) {
-    const currentSubPath = location.pathname.replace(/^\/p\/[^/]+/, '');
+    if (slug === projectCtx?.project?.slug) return;
+    setPendingSlug(slug);
+    const projectMatch = location.pathname.match(/^\/p\/[^/]+(\/.*)?$/);
+    const currentSubPath = projectMatch ? projectMatch[1] || '' : '';
     navigate(`/p/${slug}${currentSubPath || '/overview'}`);
   }
 
@@ -140,6 +165,8 @@ export default function Sidebar() {
           className="sidebar-toggle"
           onClick={() => setCollapsed(c => !c)}
           title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-expanded={!collapsed}
         >
           {collapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
         </button>
@@ -150,6 +177,7 @@ export default function Sidebar() {
           projects={projects}
           currentSlug={projectSlug || ''}
           onSwitch={switchProject}
+          pendingSlug={pendingSlug}
         />
       )}
       {collapsed && projects.length > 0 && (
@@ -157,9 +185,16 @@ export default function Sidebar() {
           <button
             onClick={() => setFlyoutOpen(o => !o)}
             title={`Project: ${projectCtx?.project?.name || 'Select'}`}
+            aria-label={`Switch project (current: ${projectCtx?.project?.name || 'none'})`}
+            aria-expanded={flyoutOpen}
+            aria-haspopup="menu"
             className={`collapsed-project-btn${flyoutOpen ? ' active' : ''}`}
           >
-            {projectCtx?.project?.short_name || (projectCtx?.project?.name || 'P').substring(0, 2).toUpperCase()}
+            {(() => {
+              const imgSrc = projectImageUrl(projectCtx?.project);
+              if (imgSrc) return <img className="project-avatar" src={imgSrc} alt="" />;
+              return projectCtx?.project?.short_name || (projectCtx?.project?.name || 'P').substring(0, 2).toUpperCase();
+            })()}
           </button>
           {flyoutOpen && (
             <CollapsedProjectFlyout
@@ -167,6 +202,7 @@ export default function Sidebar() {
               currentSlug={projectSlug || ''}
               onSwitch={switchProject}
               onClose={() => setFlyoutOpen(false)}
+              pendingSlug={pendingSlug}
             />
           )}
         </div>
@@ -180,7 +216,12 @@ export default function Sidebar() {
       </nav>
 
       <div className="sidebar-footer">
-        <button className="theme-toggle" onClick={toggleTheme} title={theme === 'light' ? 'Dark Mode' : 'Light Mode'}>
+        <button
+          className="theme-toggle"
+          onClick={toggleTheme}
+          title={theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} mode`}
+        >
           {theme === 'light' ? <Moon size={17} /> : <Sun size={17} />}
           {collapsed ? (
             <span className="nav-tooltip">{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
@@ -188,7 +229,11 @@ export default function Sidebar() {
             <span>{theme === 'light' ? 'Dark Mode' : 'Light Mode'}</span>
           )}
         </button>
-        {!collapsed && <div className="sidebar-version">v0.5.1</div>}
+        {!collapsed && (
+          <div className="sidebar-version">
+            v0.7.5
+          </div>
+        )}
       </div>
     </aside>
   );

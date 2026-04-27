@@ -12,7 +12,7 @@ import sanitizeHtml from 'sanitize-html';
  */
 const RICH_TEXT_OPTIONS: sanitizeHtml.IOptions = {
   allowedTags: [
-    'p', 'br', 'hr', 'div', 'span',
+    'p', 'br', 'hr', 'div', 'span', 'a',
     'b', 'strong', 'i', 'em', 'u', 's', 'strike', 'sub', 'sup',
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'ul', 'ol', 'li',
@@ -23,6 +23,7 @@ const RICH_TEXT_OPTIONS: sanitizeHtml.IOptions = {
   ],
   allowedAttributes: {
     '*': ['style', 'align'],
+    a: ['href', 'target', 'rel'],
     font: ['color', 'size', 'face'],
     td: ['colspan', 'rowspan'],
     th: ['colspan', 'rowspan', 'scope'],
@@ -42,13 +43,19 @@ const RICH_TEXT_OPTIONS: sanitizeHtml.IOptions = {
       height: [/^[\d.]+(px|em|rem|%)$/],
     },
   },
+  transformTags: {
+    // Force safe link attributes regardless of what the client sent. Any href
+    // that isn't in allowedSchemes (http/https/mailto) is stripped by sanitize-html
+    // before this runs, so we only rewrite survivors.
+    a: sanitizeHtml.simpleTransform('a', { target: '_blank', rel: 'noopener noreferrer' }),
+  },
   // Drop anything that isn't on the allowlist rather than escaping it to text, so the
   // output stays renderable.
   disallowedTagsMode: 'discard',
-  // No protocols means no <a href> at all — the editor doesn't currently support links,
-  // and allowing arbitrary hrefs opens a javascript: vector.
-  allowedSchemes: [],
-  allowedSchemesByTag: {},
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: {
+    a: ['http', 'https', 'mailto'],
+  },
 };
 
 /**

@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
 import DOMPurify from 'dompurify';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Monitor, Network, KeyRound, Star } from 'lucide-react';
+import { Monitor, Network, KeyRound, Star, GitFork, Upload, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useProject } from '../../contexts/ProjectContext';
 import { fetchProjectStats, updateProject } from '../../api/projects';
 import { useParams } from 'react-router-dom';
 import { RichToolbar } from '../ui/RichEditor';
+import { useToast } from '../ui/Toast';
 import PageHeader from '../layout/PageHeader';
 
 function StatCard({ label, value, icon: Icon }: { label: string; value: number | undefined; icon: React.ElementType }) {
@@ -32,6 +34,7 @@ export default function OverviewPage() {
   const { project, projectId } = useProject();
   const { projectSlug } = useParams<{ projectSlug: string }>();
   const queryClient = useQueryClient();
+  const toast = useToast();
 
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState('');
@@ -49,6 +52,7 @@ export default function OverviewPage() {
       queryClient.invalidateQueries({ queryKey: ['project', projectSlug] });
       setEditing(false);
     },
+    onError: (err: Error) => toast(err.message || 'Failed to save project', 'error'),
   });
 
   // Populate editor innerHTML when edit mode opens — use a ref so we don't clobber
@@ -74,6 +78,12 @@ export default function OverviewPage() {
   // Check if stored description is HTML or plain text for backward compatibility
   const descIsHtml = !!(project.description && project.description.includes('<'));
 
+  const base = `/p/${project.slug}`;
+  const isEmptyProject = stats &&
+    stats.device_count === 0 &&
+    stats.subnet_count === 0 &&
+    stats.credential_count === 0;
+
   return (
     <div>
       <PageHeader
@@ -88,6 +98,55 @@ export default function OverviewPage() {
         <StatCard label="Subnets" value={stats?.subnet_count} icon={Network} />
         <StatCard label="Credentials" value={stats?.credential_count} icon={KeyRound} />
       </div>
+
+      {isEmptyProject && (
+        <div className="card overview-onboarding">
+          <div className="overview-onboarding-head">
+            <Sparkles size={18} />
+            <h3>Getting started</h3>
+          </div>
+          <p className="overview-onboarding-lead">
+            This project is empty. Pick a starting point — you can always add more later.
+          </p>
+          <div className="overview-onboarding-grid">
+            <Link to={`${base}/devices/new`} className="overview-onboarding-action">
+              <Monitor size={20} />
+              <div>
+                <div className="overview-onboarding-action-title">Add a host</div>
+                <div className="overview-onboarding-action-sub">Track a device, server, or switch</div>
+              </div>
+            </Link>
+            <Link to={`${base}/subnets/new`} className="overview-onboarding-action">
+              <Network size={20} />
+              <div>
+                <div className="overview-onboarding-action-title">Define a subnet</div>
+                <div className="overview-onboarding-action-sub">Group hosts by CIDR or VLAN</div>
+              </div>
+            </Link>
+            <Link to={`${base}/credentials`} className="overview-onboarding-action">
+              <KeyRound size={20} />
+              <div>
+                <div className="overview-onboarding-action-title">Store credentials</div>
+                <div className="overview-onboarding-action-sub">Keep logins alongside the hosts they belong to</div>
+              </div>
+            </Link>
+            <Link to={`${base}/diagram`} className="overview-onboarding-action">
+              <GitFork size={20} />
+              <div>
+                <div className="overview-onboarding-action-title">Open the diagram</div>
+                <div className="overview-onboarding-action-sub">Visualise your network topology</div>
+              </div>
+            </Link>
+            <Link to={`${base}/backup`} className="overview-onboarding-action">
+              <Upload size={20} />
+              <div>
+                <div className="overview-onboarding-action-title">Import a backup</div>
+                <div className="overview-onboarding-action-sub">Restore from a previous export</div>
+              </div>
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* About / Description */}
       <div className="card" style={{ marginTop: '1.5rem' }}>

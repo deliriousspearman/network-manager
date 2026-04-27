@@ -1,12 +1,21 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useParams, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { fetchProjectBySlug } from '../../api/projects';
 import { ProjectContext } from '../../contexts/ProjectContext';
+import { useProjectEvents } from '../../hooks/useProjectEvents';
+import { useGlobalUndoRedo } from '../../hooks/useGlobalUndoRedo';
 import AppShell from './AppShell';
 import Breadcrumb from './Breadcrumb';
 import SearchModal from '../ui/SearchModal';
 import { setStorage } from '../../utils/storage';
+
+// Mounted once inside the project context so its useProject() call is valid.
+// Owns the global Ctrl+Z / Ctrl+Y bindings for entity-level undo/redo.
+function GlobalShortcuts() {
+  useGlobalUndoRedo();
+  return null;
+}
 
 const SECTION_TITLES: Record<string, string> = {
   overview: 'Overview',
@@ -38,6 +47,13 @@ export default function ProjectLayout() {
     return () => { document.title = 'Network Manager'; };
   }, [location.pathname]);
 
+  useProjectEvents(project?.id);
+
+  const contextValue = useMemo(
+    () => (project ? { project, projectId: project.id } : null),
+    [project],
+  );
+
   if (isLoading) {
     return (
       <AppShell>
@@ -46,7 +62,7 @@ export default function ProjectLayout() {
     );
   }
 
-  if (error || !project) {
+  if (error || !project || !contextValue) {
     return <Navigate to="/" replace />;
   }
 
@@ -54,7 +70,8 @@ export default function ProjectLayout() {
   setStorage('last-project-slug', project.slug);
 
   return (
-    <ProjectContext.Provider value={{ project, projectId: project.id }}>
+    <ProjectContext.Provider value={contextValue}>
+      <GlobalShortcuts />
       <AppShell>
         <Breadcrumb />
         <Outlet />

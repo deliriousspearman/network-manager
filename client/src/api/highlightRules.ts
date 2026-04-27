@@ -18,7 +18,7 @@ export async function createHighlightRule(projectId: number, data: { keyword: st
   return res.json();
 }
 
-export async function updateHighlightRule(projectId: number, id: number, data: { keyword: string; category: string; color: string; text_color?: string | null }): Promise<HighlightRule> {
+export async function updateHighlightRule(projectId: number, id: number, data: { keyword: string; category: string; color: string; text_color?: string | null; updated_at?: string }): Promise<HighlightRule> {
   const res = await fetch(`${projectBase(projectId, 'highlight-rules')}/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

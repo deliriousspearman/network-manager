@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchAgent, createAgent, updateAgent } from '../../api/agents';
-import { fetchDevices } from '../../api/devices';
+import { fetchAgentTypes } from '../../api/agentTypes';
+import { queryKeys } from '../../api/queryKeys';
+import DevicePicker from '../ui/DevicePicker';
 import { useProject } from '../../contexts/ProjectContext';
 import { useUnsavedChanges } from '../../hooks/useUnsavedChanges';
+import { onCmdEnterSubmit } from '../../hooks/useCmdEnterSubmit';
 import { useToast } from '../ui/Toast';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { RichToolbar } from '../ui/RichEditor';
-import { AGENT_TYPES, AGENT_TYPE_LABELS, AGENT_STATUSES, AGENT_STATUS_LABELS } from 'shared/types';
-import type { AgentType } from 'shared/types';
+import { AGENT_STATUSES, AGENT_STATUS_LABELS } from 'shared/types';
 import { formErrorMessage } from '../../utils/formError';
 
 export default function AgentForm() {
@@ -22,7 +24,7 @@ export default function AgentForm() {
   const base = `/p/${project.slug}`;
 
   const [name, setName] = useState('');
-  const [agentType, setAgentType] = useState<AgentType>('wazuh');
+  const [agentType, setAgentType] = useState<string>('');
   const [deviceId, setDeviceId] = useState<number | null>(null);
   const [checkinSchedule, setCheckinSchedule] = useState('');
   const [config, setConfig] = useState('');
@@ -36,16 +38,24 @@ export default function AgentForm() {
 
   useUnsavedChanges(isDirty);
 
-  const { data: devices = [] } = useQuery({
-    queryKey: ['devices', projectId],
-    queryFn: () => fetchDevices(projectId),
+  const { data: agentTypes = [] } = useQuery({
+    queryKey: ['agent-types', projectId],
+    queryFn: () => fetchAgentTypes(projectId),
   });
 
   const { data: agent, isLoading } = useQuery({
-    queryKey: ['agents', projectId, id],
+    queryKey: queryKeys.agents.detail(projectId, Number(id)),
     queryFn: () => fetchAgent(projectId, Number(id)),
     enabled: isEdit,
   });
+
+  // Default the select to the first available type when creating, so the form is
+  // valid the moment the user opens it (when there's at least one type defined).
+  useEffect(() => {
+    if (!isEdit && !agentType && agentTypes.length > 0) {
+      setAgentType(agentTypes[0].key);
+    }
+  }, [isEdit, agentType, agentTypes]);
 
   useEffect(() => {
     if (agent) {
@@ -80,7 +90,7 @@ export default function AgentForm() {
     mutationFn: (data: any) => isEdit ? updateAgent(projectId, Number(id), data) : createAgent(projectId, data),
     onSuccess: (result) => {
       setIsDirty(false);
-      queryClient.invalidateQueries({ queryKey: ['agents', projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents.all(projectId) });
       toast(isEdit ? 'Agent updated' : 'Agent created', 'success');
       navigate(`${base}/agents/${result.id}`);
     },
@@ -111,8 +121,8 @@ export default function AgentForm() {
         <h2>{isEdit ? 'Edit Agent' : 'Add Agent'}</h2>
       </div>
 
-      <div className="card" style={{ padding: '1.25rem' }}>
-        <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)}>
+      <div className="card">
+        <form onSubmit={handleSubmit} onKeyDown={onCmdEnterSubmit} onChange={() => setIsDirty(true)}>
           <div className="form-group">
             <label>Name *</label>
             <input value={name} onChange={e => setName(e.target.value)} required maxLength={200} placeholder="e.g. Wazuh Agent - Web Server" />
@@ -120,17 +130,25 @@ export default function AgentForm() {
 
           <div className="form-group">
             <label>Agent Type *</label>
-            <select value={agentType} onChange={e => setAgentType(e.target.value as AgentType)}>
-              {AGENT_TYPES.map(t => <option key={t} value={t}>{AGENT_TYPE_LABELS[t]}</option>)}
-            </select>
+            {agentTypes.length === 0 ? (
+              <div className="form-help">
+                No agent types defined yet.{' '}
+                <Link to={`${base}/settings#agent-types`}>Add one in Settings → Agent Types</Link>.
+              </div>
+            ) : (
+              <select value={agentType} onChange={e => setAgentType(e.target.value)} disabled={agentTypes.length === 0}>
+                {agentTypes.map(t => <option key={t.id} value={t.key}>{t.label}</option>)}
+              </select>
+            )}
           </div>
 
           <div className="form-group">
             <label>Device</label>
-            <select value={deviceId ?? ''} onChange={e => setDeviceId(e.target.value ? Number(e.target.value) : null)}>
-              <option value="">— No device —</option>
-              {devices.map(d => <option key={d.id} value={d.id}>{d.name}{d.os ? ` (${d.os})` : ''}</option>)}
-            </select>
+            <DevicePicker
+              value={deviceId}
+              onChange={(id) => { setDeviceId(id); setIsDirty(true); }}
+              placeholder="— No device —"
+            />
           </div>
 
           <div className="form-group">
@@ -157,7 +175,7 @@ export default function AgentForm() {
 
           <div className="form-group">
             <label>Configuration</label>
-            <textarea value={config} onChange={e => setConfig(e.target.value)} rows={6} maxLength={10000} placeholder="Paste agent configuration here..." style={{ fontFamily: 'monospace', fontSize: '0.85rem' }} />
+            <textarea className="agent-config-input" value={config} onChange={e => setConfig(e.target.value)} rows={6} maxLength={10000} placeholder="Paste agent configuration here..." />
           </div>
 
           <div className="form-group">
@@ -177,13 +195,13 @@ export default function AgentForm() {
           </div>
 
           {mutation.isError && (
-            <div style={{ color: 'var(--color-danger)', fontSize: '0.85rem', marginTop: '0.5rem' }}>
+            <div className="form-error">
               {formErrorMessage(mutation.error)}
             </div>
           )}
 
-          <div className="actions" style={{ marginTop: '1rem' }}>
-            <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
+          <div className="actions actions-spaced">
+            <button type="submit" className="btn btn-primary" disabled={mutation.isPending || !agentType}>
               {mutation.isPending ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Agent'}
             </button>
             <button type="button" className="btn btn-secondary" onClick={() => navigate(`${base}/agents`)}>Cancel</button>

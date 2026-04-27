@@ -1,12 +1,13 @@
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchSubnet, deleteSubnet } from '../../api/subnets';
+import { queryKeys } from '../../api/queryKeys';
 import { useProject } from '../../contexts/ProjectContext';
 import { rowNavHandlers } from '../../utils/navigation';
 import { useConfirmDialog } from '../ui/ConfirmDialog';
 import { useToast } from '../ui/Toast';
 import { DEVICE_TYPE_LABELS } from 'shared/types';
-import LoadingSpinner from '../ui/LoadingSpinner';
+import { Skeleton, SkeletonTable } from '../ui/Skeleton';
 
 export default function SubnetDetail() {
   const { id } = useParams();
@@ -19,20 +20,45 @@ export default function SubnetDetail() {
   const subnetId = Number(id);
 
   const { data: subnet, isLoading } = useQuery({
-    queryKey: ['subnet', projectId, subnetId],
+    queryKey: queryKeys.subnets.detail(projectId, subnetId),
     queryFn: () => fetchSubnet(projectId, subnetId),
   });
 
   const deleteMut = useMutation({
     mutationFn: () => deleteSubnet(projectId, subnetId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['subnets', projectId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.subnets.all(projectId) });
       navigate(`${base}/subnets`);
     },
-    onError: () => toast('Failed to delete subnet', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete subnet', 'error'),
   });
 
-  if (isLoading) return <LoadingSpinner />;
+  if (isLoading) {
+    return (
+      <div>
+        <div className="page-header">
+          <div>
+            <h2><Skeleton width={200} height={28} /></h2>
+            <span style={{ fontSize: '0.85rem' }}><Skeleton width={80} height={14} /></span>
+          </div>
+        </div>
+        <div className="card">
+          <div className="detail-grid">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="detail-item">
+                <label><Skeleton width={80} height={12} /></label>
+                <p><Skeleton width={160} height={16} /></p>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="card">
+          <h3 style={{ marginBottom: '0.75rem', fontSize: '1rem' }}><Skeleton width={80} height={18} /></h3>
+          <SkeletonTable rows={4} columns={4} />
+        </div>
+      </div>
+    );
+  }
   if (!subnet) return <div className="empty-state">Subnet not found</div>;
 
   const deviceCount = subnet.devices?.length ?? 0;

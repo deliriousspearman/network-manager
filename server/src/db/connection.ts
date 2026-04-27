@@ -2,9 +2,13 @@ import Database, { type Database as BetterDatabase } from 'better-sqlite3';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import { migrateBlobsToDisk } from './migrations/054_blob_migrate.js';
+import { seedDefaultLibraryImages } from './seedDefaultLibraryImages.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, '../../data');
+// DATA_DIR override lets tests point the server at a fresh temp directory
+// so each test process gets its own isolated DB + blob storage.
+const dataDir = process.env.DATA_DIR ?? path.join(__dirname, '../../data');
 
 if (!fs.existsSync(dataDir)) {
   fs.mkdirSync(dataDir, { recursive: true });
@@ -36,5 +40,12 @@ if (fs.existsSync(migrationsDir)) {
     db.prepare('INSERT INTO schema_migrations (filename) VALUES (?)').run(file);
   }
 }
+
+// Idempotent: moves any remaining base64-in-DB blobs to disk. Safe to run on every startup.
+migrateBlobsToDisk(db);
+
+// Idempotent: ensure each project has the bundled default Router/Cloud images
+// in its image library so the gallery is never empty out of the box.
+seedDefaultLibraryImages(db);
 
 export default db;

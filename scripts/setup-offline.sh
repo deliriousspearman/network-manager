@@ -13,7 +13,7 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$SCRIPT_DIR/.."
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 SERVICE_FILE="$HOME/.config/systemd/user/network-manager.service"
 CERT_DIR="$ROOT_DIR/server/certs"
 VENDOR_DIR="$ROOT_DIR/vendor"
@@ -202,6 +202,8 @@ success "Service file written to $SERVICE_FILE"
 
 header "Enabling and starting service"
 
+# Stop if already running (e.g. re-run with new settings)
+systemctl --user stop network-manager 2>/dev/null || true
 systemctl --user daemon-reload
 systemctl --user enable --now network-manager
 

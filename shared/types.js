@@ -31,13 +31,8 @@ export const TIMELINE_CATEGORY_LABELS = {
     milestone: 'Milestone',
     note: 'Note',
 };
-// Agent types
-export const AGENT_TYPES = ['wazuh', 'zabbix', 'elk', 'prometheus', 'grafana', 'nagios', 'datadog', 'splunk', 'ossec', 'custom'];
-export const AGENT_TYPE_LABELS = {
-    wazuh: 'Wazuh', zabbix: 'Zabbix', elk: 'ELK', prometheus: 'Prometheus',
-    grafana: 'Grafana', nagios: 'Nagios', datadog: 'Datadog', splunk: 'Splunk',
-    ossec: 'OSSEC', custom: 'Custom',
-};
+// Built-in agent icon keys
+export const BUILTIN_AGENT_ICON_KEYS = ['wazuh', 'zabbix', 'elk', 'prometheus', 'grafana', 'nagios', 'datadog', 'splunk', 'ossec', 'custom'];
 export const AGENT_STATUSES = ['active', 'inactive', 'error', 'unknown'];
 export const AGENT_STATUS_LABELS = {
     active: 'Active', inactive: 'Inactive', error: 'Error', unknown: 'Unknown',

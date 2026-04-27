@@ -1,10 +1,12 @@
 import type { Dispatch, RefObject, SetStateAction } from 'react';
+import { useState } from 'react';
 import {
   MonitorUp, Network as NetworkIcon, Grid3x3, Share2, ImagePlus, Upload, Download,
-  Wand2, KeyRound, List, Map, Maximize, Undo2, Redo2, Type, Layers, Plus, Pencil,
-  MousePointer2, Search, Lock, Unlock, Shield, Bot, Filter,
+  Wand2, LayoutGrid, KeyRound, List, Map, Maximize, Undo2, Redo2, Type, Layers, Plus, Pencil,
+  MousePointer2, Search, Lock, Unlock, Shield, Bot, Filter, Sliders,
 } from 'lucide-react';
 import { setStorage } from '../../utils/storage';
+import { DEFAULT_LAYOUT_SETTINGS, type LayoutSettings } from '../../api/diagram';
 import type { DiagramView, Subnet, DeviceWithIps } from 'shared/types';
 
 export interface DiagramToolbarProps {
@@ -63,6 +65,7 @@ export interface DiagramToolbarProps {
 
   // Layout
   onAutoLayoutGrid: () => void;
+  onAutoLayout: () => void;
   onFitView: () => void;
 
   // Export / import
@@ -71,8 +74,13 @@ export interface DiagramToolbarProps {
   onExportPng: () => void;
   onExportSvg: () => void;
   onExportDiagramJson: () => void;
+  onExportDrawio: () => void;
+  importMenuOpen: boolean;
+  setImportMenuOpen: Dispatch<SetStateAction<boolean>>;
   importFileRef: RefObject<HTMLInputElement>;
+  drawioImportFileRef: RefObject<HTMLInputElement>;
   onImportDiagram: (file: File) => void;
+  onImportDrawio: (file: File) => void;
 
   // Undo/redo
   onUndo: () => void;
@@ -90,6 +98,19 @@ export interface DiagramToolbarProps {
   setTypeFilterMenuOpen: Dispatch<SetStateAction<boolean>>;
   onToggleTypeFilter: (t: string) => void;
   onClearTypeFilter: () => void;
+
+  // Subnet filter (pre-render — drops nodes outside selected subnets,
+  // used as an escape hatch for large diagrams where React Flow freezes)
+  subnetOptions: Array<{ id: number; name: string; cidr: string }>;
+  subnetFilter: number[];
+  subnetFilterMenuOpen: boolean;
+  setSubnetFilterMenuOpen: Dispatch<SetStateAction<boolean>>;
+  onToggleSubnetFilter: (id: number) => void;
+  onClearSubnetFilter: () => void;
+
+  // Layout options (consumed by Auto-Layout / Auto-Generate)
+  layoutSettings: LayoutSettings;
+  setLayoutSettings: (s: LayoutSettings) => void;
 }
 
 const DEVICE_TYPE_OPTIONS: Array<{ value: string; label: string }> = [
@@ -122,15 +143,29 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
     showCredentials, setShowCredentials, showAv, setShowAv,
     showAgents, setShowAgents, showLegend, setShowLegend,
     showMinimap, setShowMinimap,
-    onAutoLayoutGrid, onFitView,
+    onAutoLayoutGrid, onAutoLayout, onFitView,
     exportMenuOpen, setExportMenuOpen,
-    onExportPng, onExportSvg, onExportDiagramJson,
-    importFileRef, onImportDiagram,
+    onExportPng, onExportSvg, onExportDiagramJson, onExportDrawio,
+    importMenuOpen, setImportMenuOpen,
+    importFileRef, drawioImportFileRef,
+    onImportDiagram, onImportDrawio,
     onUndo, onRedo, canUndo, canRedo,
     searchQuery, setSearchQuery,
     typeFilter, typeFilterMenuOpen, setTypeFilterMenuOpen,
     onToggleTypeFilter, onClearTypeFilter,
+    subnetOptions, subnetFilter, subnetFilterMenuOpen, setSubnetFilterMenuOpen,
+    onToggleSubnetFilter, onClearSubnetFilter,
+    layoutSettings, setLayoutSettings,
   } = props;
+
+  const [layoutMenuOpen, setLayoutMenuOpen] = useState(false);
+  const updateLayout = (patch: Partial<LayoutSettings>) => setLayoutSettings({ ...layoutSettings, ...patch });
+  const layoutIsDefault =
+    layoutSettings.direction === DEFAULT_LAYOUT_SETTINGS.direction &&
+    layoutSettings.subnetsPerRow === DEFAULT_LAYOUT_SETTINGS.subnetsPerRow &&
+    layoutSettings.devicesPerSubnetRow === DEFAULT_LAYOUT_SETTINGS.devicesPerSubnetRow &&
+    layoutSettings.spacing === DEFAULT_LAYOUT_SETTINGS.spacing &&
+    layoutSettings.sort === DEFAULT_LAYOUT_SETTINGS.sort;
 
   return (
     <div className="diagram-toolbar">
@@ -157,7 +192,7 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
                       {v.name}{v.is_default ? ' (default)' : ''}
                     </button>
                     {!v.is_default && (
-                      <button className="btn btn-sm" title="Edit" onClick={() => { setEditingView({ id: v.id, name: v.name }); setEditingViewName(v.name); setViewMenuOpen(false); }}>
+                      <button className="btn btn-sm" title="Edit" aria-label="Edit" onClick={() => { setEditingView({ id: v.id, name: v.name }); setEditingViewName(v.name); setViewMenuOpen(false); }}>
                         <Pencil size={13} />
                       </button>
                     )}
@@ -300,10 +335,101 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
       </div>
 
       {/* Group: Layout & View */}
-      <div className="diagram-tb-group">
-        <button className="diagram-tb-btn" data-tooltip="Auto Layout" disabled={locked} onClick={onAutoLayoutGrid}>
+      <div className="diagram-tb-group" style={{ position: 'relative' }}>
+        <button className="diagram-tb-btn" data-tooltip="Auto Layout (preserve content)" disabled={locked} onClick={onAutoLayout}>
+          <LayoutGrid size={17} />
+        </button>
+        <button className="diagram-tb-btn" data-tooltip="Auto Generate (wipes view)" disabled={locked} onClick={onAutoLayoutGrid}>
           <Wand2 size={17} />
         </button>
+        <button
+          className={`diagram-tb-btn${(layoutMenuOpen || !layoutIsDefault) ? ' active' : ''}`}
+          data-tooltip="Layout Options"
+          onClick={() => setLayoutMenuOpen(v => !v)}
+        >
+          <Sliders size={17} />
+        </button>
+        {layoutMenuOpen && (
+          <div
+            className="diagram-tb-popover"
+            style={{ minWidth: 240, flexDirection: 'column', alignItems: 'stretch', gap: 'var(--space-1)' }}
+          >
+            <div className="diagram-tb-popover-section-label">Direction</div>
+            {(['vertical', 'horizontal', 'square'] as const).map(d => (
+              <label key={d} className="diagram-tb-popover-option">
+                <input
+                  type="radio"
+                  name="layout-direction"
+                  checked={layoutSettings.direction === d}
+                  onChange={() => updateLayout({ direction: d })}
+                />
+                {d === 'vertical' ? 'Vertical (rows)' : d === 'horizontal' ? 'Horizontal (columns)' : 'Square'}
+              </label>
+            ))}
+
+            <div className="diagram-tb-popover-section-label">
+              {layoutSettings.direction === 'horizontal' ? 'Subnets per column' : 'Subnets per row'}
+            </div>
+            <input
+              type="number"
+              min={1}
+              max={12}
+              disabled={layoutSettings.direction === 'square'}
+              value={layoutSettings.subnetsPerRow}
+              onChange={e => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) updateLayout({ subnetsPerRow: Math.max(1, Math.min(12, Math.floor(n))) });
+              }}
+            />
+
+            <div className="diagram-tb-popover-section-label">Devices per row in subnet</div>
+            <input
+              type="number"
+              min={1}
+              max={8}
+              value={layoutSettings.devicesPerSubnetRow}
+              onChange={e => {
+                const n = Number(e.target.value);
+                if (Number.isFinite(n)) updateLayout({ devicesPerSubnetRow: Math.max(1, Math.min(8, Math.floor(n))) });
+              }}
+            />
+
+            <div className="diagram-tb-popover-section-label">Spacing</div>
+            {(['compact', 'normal', 'spacious'] as const).map(s => (
+              <label key={s} className="diagram-tb-popover-option">
+                <input
+                  type="radio"
+                  name="layout-spacing"
+                  checked={layoutSettings.spacing === s}
+                  onChange={() => updateLayout({ spacing: s })}
+                />
+                {s.charAt(0).toUpperCase() + s.slice(1)}
+              </label>
+            ))}
+
+            <div className="diagram-tb-popover-section-label">Sort</div>
+            {(['connected', 'name', 'created'] as const).map(s => (
+              <label key={s} className="diagram-tb-popover-option">
+                <input
+                  type="radio"
+                  name="layout-sort"
+                  checked={layoutSettings.sort === s}
+                  onChange={() => updateLayout({ sort: s })}
+                />
+                {s === 'connected' ? 'Connected (BFS)' : s === 'name' ? 'Alphabetical' : 'Created (oldest first)'}
+              </label>
+            ))}
+
+            <button
+              className="btn btn-sm btn-secondary"
+              style={{ marginTop: 'var(--space-2)' }}
+              disabled={layoutIsDefault}
+              onClick={() => setLayoutSettings(DEFAULT_LAYOUT_SETTINGS)}
+            >
+              Reset to defaults
+            </button>
+          </div>
+        )}
         <button
           className="diagram-tb-btn"
           data-tooltip="Fit to View"
@@ -323,10 +449,11 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
             <button className="btn btn-sm" onClick={() => { onExportPng(); setExportMenuOpen(false); }}>Export PNG</button>
             <button className="btn btn-sm" onClick={() => { onExportSvg(); setExportMenuOpen(false); }}>Export SVG</button>
             <button className="btn btn-sm" onClick={() => { onExportDiagramJson(); setExportMenuOpen(false); }}>Export Diagram JSON</button>
+            <button className="btn btn-sm" onClick={() => { onExportDrawio(); setExportMenuOpen(false); }}>Export draw.io</button>
           </div>
         )}
       </div>
-      <div className="diagram-tb-group">
+      <div className="diagram-tb-group relative">
         <input
           ref={importFileRef}
           type="file"
@@ -338,9 +465,40 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
             e.target.value = '';
           }}
         />
-        <button className="diagram-tb-btn" data-tooltip="Import Diagram JSON" onClick={() => importFileRef.current?.click()}>
+        <input
+          ref={drawioImportFileRef}
+          type="file"
+          accept=".drawio,.xml"
+          style={{ display: 'none' }}
+          onChange={e => {
+            const file = e.target.files?.[0];
+            if (file) onImportDrawio(file);
+            e.target.value = '';
+          }}
+        />
+        <button
+          className={`diagram-tb-btn${importMenuOpen ? ' active' : ''}`}
+          data-tooltip="Import"
+          onClick={() => setImportMenuOpen(v => !v)}
+        >
           <Upload size={17} />
         </button>
+        {importMenuOpen && (
+          <div className="diagram-tb-popover diagram-tb-popover-narrow">
+            <button
+              className="btn btn-sm"
+              onClick={() => { setImportMenuOpen(false); importFileRef.current?.click(); }}
+            >
+              Import Diagram JSON
+            </button>
+            <button
+              className="btn btn-sm"
+              onClick={() => { setImportMenuOpen(false); drawioImportFileRef.current?.click(); }}
+            >
+              Import from draw.io
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Group: Undo/Redo */}
@@ -363,8 +521,50 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
         </button>
       </div>
 
-      {/* Type filter + search */}
+      {/* Subnet filter (drops nodes outside selected subnets) */}
       <div className="diagram-tb-group ml-auto" style={{ position: 'relative' }}>
+        <button
+          className={`diagram-tb-btn${subnetFilter.length > 0 ? ' active' : ''}${subnetFilterMenuOpen ? ' active' : ''}`}
+          data-tooltip={subnetFilter.length > 0 ? `Subnet filter (${subnetFilter.length})` : 'Show only selected subnets'}
+          onClick={() => setSubnetFilterMenuOpen(v => !v)}
+        >
+          <NetworkIcon size={17} />
+        </button>
+        {subnetFilterMenuOpen && (
+          <div className="diagram-tb-popover" style={{ minWidth: 220, maxHeight: 320, overflowY: 'auto', flexDirection: 'column', alignItems: 'stretch', gap: '0.2rem', right: 0, left: 'auto' }}>
+            {subnetOptions.length === 0 ? (
+              <span style={{ fontSize: '0.8rem', color: 'var(--color-text-muted)', padding: '0.3rem' }}>No subnets on diagram</span>
+            ) : subnetOptions.map(s => (
+              <label
+                key={s.id}
+                style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', padding: '0.2rem 0.3rem', cursor: 'pointer' }}
+              >
+                <input
+                  type="checkbox"
+                  style={{ width: 'auto', margin: 0 }}
+                  checked={subnetFilter.includes(s.id)}
+                  onChange={() => onToggleSubnetFilter(s.id)}
+                />
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {s.name} <span style={{ color: 'var(--color-text-muted)' }}>({s.cidr})</span>
+                </span>
+              </label>
+            ))}
+            {subnetFilter.length > 0 && (
+              <button
+                className="btn btn-sm btn-secondary"
+                style={{ marginTop: '0.3rem', width: '100%' }}
+                onClick={onClearSubnetFilter}
+              >
+                Clear filter
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Type filter + search */}
+      <div className="diagram-tb-group" style={{ position: 'relative' }}>
         <button
           className={`diagram-tb-btn${typeFilter.length > 0 ? ' active' : ''}${typeFilterMenuOpen ? ' active' : ''}`}
           data-tooltip={typeFilter.length > 0 ? `Type filter (${typeFilter.length})` : 'Filter by type'}
@@ -405,7 +605,7 @@ export default function DiagramToolbar(props: DiagramToolbarProps) {
         <input
           type="text"
           className="diagram-search"
-          placeholder="Search"
+          placeholder="Filter by name, IP, tag"
           value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
         />

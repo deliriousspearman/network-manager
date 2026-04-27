@@ -62,7 +62,7 @@ export default function DiagramLegend({ items, onUpdate }: DiagramLegendProps) {
       <div className="diagram-legend-header">
         <h4>Legend</h4>
         {editing ? (
-          <button className="diagram-legend-btn" onClick={handleSave} title="Save">
+          <button className="diagram-legend-btn" onClick={handleSave} title="Save" aria-label="Save">
             <Check size={14} />
           </button>
         ) : (

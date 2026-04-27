@@ -51,3 +51,22 @@ export async function deleteProject(id: number): Promise<void> {
   const res = await fetch(`${BASE}/${id}`, { method: 'DELETE' });
   if (!res.ok) await throwApiError(res, 'Failed to delete project');
 }
+
+export async function uploadProjectImage(
+  id: number,
+  payload: { filename: string; mime_type: string; data: string },
+): Promise<Project> {
+  const res = await fetch(`${BASE}/${id}/image`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) await throwApiError(res, 'Failed to upload project image');
+  return res.json();
+}
+
+export async function deleteProjectImage(id: number): Promise<Project> {
+  const res = await fetch(`${BASE}/${id}/image`, { method: 'DELETE' });
+  if (!res.ok) await throwApiError(res, 'Failed to remove project image');
+  return res.json();
+}

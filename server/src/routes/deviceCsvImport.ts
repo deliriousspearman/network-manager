@@ -50,19 +50,27 @@ router.post('/apply', asyncHandler((req, res) => {
     'INSERT INTO devices (name, type, mac_address, os, hostname, domain, location, project_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
   );
   const insertIp = db.prepare(
-    'INSERT INTO device_ips (device_id, ip_address, is_primary) VALUES (?, ?, 1)'
+    'INSERT INTO device_ips (device_id, ip_address, is_primary) VALUES (?, ?, ?)'
   );
   const insertTag = db.prepare(
     'INSERT OR IGNORE INTO device_tags (device_id, tag) VALUES (?, ?)'
   );
 
-  const importDevices = db.transaction(() => {
+  // Batch the inserts so a 100k-row CSV doesn't hold the WAL lock for minutes
+  // and roll back slowly on a parser bug. Each batch commits independently;
+  // a per-row failure inside a batch still gets caught and reported (the
+  // batch-level catch is just a safety net for unexpected errors that
+  // escape the inner try/catch — those abort that batch only).
+  const BATCH_SIZE = 5000;
+
+  const importBatch = db.transaction((batch: typeof rows, startIndex: number) => {
     let created = 0;
     let skipped = 0;
     const errors: string[] = [];
 
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i];
+    for (let i = 0; i < batch.length; i++) {
+      const row = batch[i];
+      const csvRowNum = startIndex + i + 2; // header + 1-indexed
       try {
         const type = VALID_DEVICE_TYPES.includes((row.type || '').toLowerCase())
           ? row.type.toLowerCase()
@@ -84,9 +92,7 @@ router.post('/apply', asyncHandler((req, res) => {
           // Support multiple IPs separated by semicolons
           const ips = row.ip_address.split(';').map(ip => ip.trim()).filter(Boolean);
           for (let j = 0; j < ips.length; j++) {
-            db.prepare(
-              'INSERT INTO device_ips (device_id, ip_address, is_primary) VALUES (?, ?, ?)'
-            ).run(deviceId, ips[j].slice(0, 50), j === 0 ? 1 : 0);
+            insertIp.run(deviceId, ips[j].slice(0, 50), j === 0 ? 1 : 0);
           }
         }
 
@@ -98,16 +104,32 @@ router.post('/apply', asyncHandler((req, res) => {
         }
 
         created++;
-      } catch (err: any) {
+      } catch (err: unknown) {
         skipped++;
-        errors.push(`Row ${i + 2}: ${err?.message || 'Unknown error'}`);
+        const msg = err instanceof Error ? err.message : 'Unknown error';
+        errors.push(`Row ${csvRowNum}: ${msg}`);
       }
     }
 
     return { created, skipped, errors };
   });
 
-  const result = importDevices();
+  const result = { created: 0, skipped: 0, errors: [] as string[] };
+  for (let offset = 0; offset < rows.length; offset += BATCH_SIZE) {
+    const slice = rows.slice(offset, offset + BATCH_SIZE);
+    try {
+      const r = importBatch(slice, offset);
+      result.created += r.created;
+      result.skipped += r.skipped;
+      result.errors.push(...r.errors);
+    } catch (err: unknown) {
+      // Whole-batch failure (rare — e.g. SQLite locked under contention).
+      // Mark all rows in the batch as skipped and continue with later batches.
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      result.skipped += slice.length;
+      result.errors.push(`Rows ${offset + 2}-${offset + 1 + slice.length}: batch failed (${msg})`);
+    }
+  }
 
   logActivity({
     projectId,

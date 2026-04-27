@@ -6,6 +6,7 @@ import { fetchSettings } from '../../api/settings';
 import type { ActivityLog } from '../../api/activityLogs';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Pagination from '../ui/Pagination';
+import { PAGE_LIMIT } from '../../utils/constants';
 
 const RESOURCE_LABELS: Record<string, string> = {
   device: 'Device',
@@ -35,8 +36,6 @@ const ACTION_COLORS: Record<string, string> = {
   imported: '#a855f7',
   captured: '#14b8a6',
 };
-
-const PAGE_LIMIT = 50;
 
 function formatTimestamp(ts: string, timezone: string): string {
   const date = new Date(ts + 'Z');
@@ -132,7 +131,7 @@ export default function AdminLogsPage() {
               className="diagram-search"
               value={search}
               onChange={e => handleSearch(e.target.value)}
-              placeholder="Search"
+              placeholder="Search action, resource, details"
             />
           </div>
           <select value={filterResource} onChange={e => handleFilterResource(e.target.value)} style={selectStyle}>

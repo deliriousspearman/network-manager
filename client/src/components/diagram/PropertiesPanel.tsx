@@ -5,18 +5,81 @@ import type { NodePrefs } from 'shared/types';
 import { ColourPicker } from '../ui/ColourPicker';
 import { usePopupClose } from '../../hooks/usePopupClose';
 
-export interface SelectedElement {
-  type: 'device' | 'subnet' | 'edge';
-  id: string;
-  data: any;
+export interface DeviceIpEntry {
+  ip_address: string;
+  label?: string | null;
+  is_primary?: boolean;
+  dhcp?: boolean;
 }
+
+export interface DeviceNodeData {
+  label: string;
+  deviceId: number;
+  deviceType: string;
+  hostingType?: string | null;
+  ips?: DeviceIpEntry[];
+  os?: string | null;
+  location?: string | null;
+  macAddress?: string | null;
+  notes?: string | null;
+}
+
+export interface SubnetNodeData {
+  label: string;
+  id?: string;
+  subnetId?: number;
+  cidr: string;
+  vlanId?: number | null;
+  description?: string | null;
+}
+
+export interface EdgeConnData {
+  connId?: number;
+  label?: string | null;
+  connectionType?: string | null;
+  edgeType?: string;
+  edgeColor?: string | null;
+  edgeWidth?: number | null;
+  labelColor?: string | null;
+  labelBgColor?: string | null;
+  createdAt?: string;
+  sourceName: string;
+  targetName: string;
+  sourceDeviceId?: number | null;
+  targetDeviceId?: number | null;
+  sourcePort?: string | null;
+  targetPort?: string | null;
+}
+
+export type SelectedElement =
+  | { type: 'device'; id: string; data: DeviceNodeData }
+  | { type: 'subnet'; id: string; data: SubnetNodeData }
+  | { type: 'edge'; id: string; data: EdgeConnData }
+  | { type: 'image'; id: string; imageId: number; label: string | null };
+
+type ConnectionUpdatePatch = {
+  label?: string | null;
+  connection_type?: string;
+  edge_type?: string;
+  edge_color?: string | null;
+  edge_width?: number | null;
+  label_color?: string | null;
+  label_bg_color?: string | null;
+  source_handle?: string | null;
+  target_handle?: string | null;
+  source_port?: string | null;
+  target_port?: string | null;
+};
+
+export type NodePrefValue = string | boolean | null;
 
 interface Props {
   selected: SelectedElement;
   onClose: () => void;
   nodePrefs: NodePrefs;
-  onPrefChange: (key: keyof NodePrefs, value: any) => void;
-  onConnectionUpdate?: (connId: number, data: { label?: string | null; connection_type?: string; edge_type?: string; edge_color?: string | null; edge_width?: number | null; label_color?: string | null; label_bg_color?: string | null; source_handle?: string | null; target_handle?: string | null; source_port?: string | null; target_port?: string | null }) => void;
+  onPrefChange: (key: keyof NodePrefs, value: NodePrefValue) => void;
+  onConnectionUpdate?: (connId: number, data: ConnectionUpdatePatch) => void;
+  onImageUpdate?: (imageId: number, patch: { label: string }) => void;
   projectBase?: string;
   locked?: boolean;
 }
@@ -112,7 +175,7 @@ function AppearanceSection({
 }: {
   nodeId: string;
   nodePrefs: NodePrefs;
-  onPrefChange: (key: keyof NodePrefs, value: any) => void;
+  onPrefChange: (key: keyof NodePrefs, value: NodePrefValue) => void;
   isDevice: boolean;
   disabled?: boolean;
 }) {
@@ -172,7 +235,7 @@ function AppearanceSection({
   );
 }
 
-function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled = false }: { data: any; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: any) => void; projectBase?: string; disabled?: boolean }) {
+function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled = false }: { data: DeviceNodeData; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: NodePrefValue) => void; projectBase?: string; disabled?: boolean }) {
   return (
     <>
       <div className="props-section">
@@ -184,11 +247,11 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled
         )}
       </div>
 
-      {data.ips?.length > 0 && (
+      {data.ips && data.ips.length > 0 && (
         <div className="props-section">
           <div className="props-label">IP Addresses</div>
           <ul className="ip-list">
-            {data.ips.map((ip: any, i: number) => (
+            {data.ips.map((ip, i) => (
               <li key={i} className={ip.is_primary ? 'ip-primary' : ''}>
                 {ip.ip_address}
                 {ip.label && <span className="props-muted"> ({ip.label})</span>}
@@ -197,6 +260,20 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled
               </li>
             ))}
           </ul>
+          {data.ips.length > 1 && (
+            <label
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.4rem', fontSize: '0.8rem', cursor: disabled ? 'not-allowed' : 'pointer' }}
+              title="When checked, the diagram node shows only this device's primary IP."
+            >
+              <input
+                type="checkbox"
+                checked={!!nodePrefs.primaryIpOnly}
+                disabled={disabled}
+                onChange={e => onPrefChange('primaryIpOnly', e.target.checked)}
+              />
+              <span>Show only primary IP on diagram</span>
+            </label>
+          )}
         </div>
       )}
 
@@ -228,7 +305,7 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled
         </div>
       )}
 
-      <AppearanceSection nodeId={data.deviceId} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={true} disabled={disabled} />
+      <AppearanceSection nodeId={String(data.deviceId)} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={true} disabled={disabled} />
 
       <div className="props-section">
         <Link to={`${projectBase || ''}/devices/${data.deviceId}`} className="btn btn-outline" style={{ width: '100%', justifyContent: 'center', fontSize: '1rem', lineHeight: 1.1 }}>
@@ -239,7 +316,7 @@ function DeviceProperties({ data, nodePrefs, onPrefChange, projectBase, disabled
   );
 }
 
-function SubnetProperties({ data, nodePrefs, onPrefChange, projectBase, disabled = false }: { data: any; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: any) => void; projectBase?: string; disabled?: boolean }) {
+function SubnetProperties({ data, nodePrefs, onPrefChange, projectBase, disabled = false }: { data: SubnetNodeData; nodePrefs: NodePrefs; onPrefChange: (key: keyof NodePrefs, value: NodePrefValue) => void; projectBase?: string; disabled?: boolean }) {
   return (
     <>
       <div className="props-section">
@@ -261,7 +338,7 @@ function SubnetProperties({ data, nodePrefs, onPrefChange, projectBase, disabled
         </div>
       )}
 
-      <AppearanceSection nodeId={data.id} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={false} disabled={disabled} />
+      <AppearanceSection nodeId={data.id ?? ''} nodePrefs={nodePrefs} onPrefChange={onPrefChange} isDevice={false} disabled={disabled} />
 
       {data.subnetId != null && (
         <div className="props-section">
@@ -297,7 +374,7 @@ const EDGE_WIDTH_OPTIONS = [
   { value: '6', label: 'Heavy' },
 ];
 
-function EdgeProperties({ data, onConnectionUpdate, disabled = false }: { data: any; onConnectionUpdate?: Props['onConnectionUpdate']; disabled?: boolean }) {
+function EdgeProperties({ data, onConnectionUpdate, disabled = false }: { data: EdgeConnData; onConnectionUpdate?: Props['onConnectionUpdate']; disabled?: boolean }) {
   const [label, setLabel] = useState(data.label || '');
   const [sourcePort, setSourcePort] = useState(data.sourcePort || '');
   const [targetPort, setTargetPort] = useState(data.targetPort || '');
@@ -448,15 +525,46 @@ function EdgeProperties({ data, onConnectionUpdate, disabled = false }: { data: 
   );
 }
 
-export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefChange, onConnectionUpdate, projectBase, locked = false }: Props) {
+function ImageProperties({ imageId, initialLabel, onImageUpdate, disabled = false }: {
+  imageId: number;
+  initialLabel: string;
+  onImageUpdate?: Props['onImageUpdate'];
+  disabled?: boolean;
+}) {
+  const [label, setLabel] = useState(initialLabel);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleChange = (value: string) => {
+    setLabel(value);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => onImageUpdate?.(imageId, { label: value }), 500);
+  };
+
+  return (
+    <div className="props-section">
+      <div className="props-label">Caption</div>
+      <input
+        type="text"
+        value={label}
+        onChange={e => handleChange(e.target.value)}
+        placeholder="Text shown below the image"
+        readOnly={disabled}
+      />
+    </div>
+  );
+}
+
+export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefChange, onConnectionUpdate, onImageUpdate, projectBase, locked = false }: Props) {
   const title = selected.type === 'device'
     ? selected.data.label
     : selected.type === 'subnet'
     ? selected.data.label
+    : selected.type === 'image'
+    ? (selected.label || 'Image')
     : 'Connection';
 
   const isFavourite = nodePrefs.favourite || false;
-  const showFavourite = selected.type !== 'edge';
+  const showFavourite = selected.type !== 'edge' && selected.type !== 'image';
 
   return (
     <div className="properties-panel">
@@ -473,7 +581,7 @@ export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefCh
               <Star size={16} fill={isFavourite ? 'currentColor' : 'none'} />
             </button>
           )}
-          <button className="properties-panel-close" onClick={onClose} title="Close">
+          <button className="properties-panel-close" onClick={onClose} title="Close" aria-label="Close">
             <X size={16} />
           </button>
         </div>
@@ -492,6 +600,15 @@ export default function PropertiesPanel({ selected, onClose, nodePrefs, onPrefCh
           <SubnetProperties data={selected.data} nodePrefs={nodePrefs} onPrefChange={onPrefChange} projectBase={projectBase} disabled={locked} />
         )}
         {selected.type === 'edge' && <EdgeProperties data={selected.data} onConnectionUpdate={onConnectionUpdate} disabled={locked} />}
+        {selected.type === 'image' && (
+          <ImageProperties
+            key={selected.imageId}
+            imageId={selected.imageId}
+            initialLabel={selected.label || ''}
+            onImageUpdate={onImageUpdate}
+            disabled={locked}
+          />
+        )}
       </div>
     </div>
   );

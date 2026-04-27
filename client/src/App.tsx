@@ -24,6 +24,7 @@ const TimelinePage = lazy(() => import('./components/timeline/TimelinePage'));
 const AgentList = lazy(() => import('./components/agents/AgentList'));
 const AgentForm = lazy(() => import('./components/agents/AgentForm'));
 const AgentDetail = lazy(() => import('./components/agents/AgentDetail'));
+const TrashPage = lazy(() => import('./components/trash/TrashPage'));
 
 function SuspenseWrap({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<LoadingSpinner />}>{children}</Suspense>;
@@ -61,6 +62,7 @@ export default function App() {
           <Route path="timeline" element={<TimelinePage />} />
           <Route path="settings" element={<SettingsPage />} />
           <Route path="logs" element={<LogsPage />} />
+          <Route path="trash" element={<TrashPage />} />
           <Route path="query" element={<QueryPage />} />
         </Route>
 

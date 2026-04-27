@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Populates the application with realistic example data for demo purposes.
-# Requires the server to be running on localhost:3001.
+# Defaults to localhost:3001; override the API base URL with the API env var:
+#   API=https://your-host/api scripts/demo-data.sh
+# -k is passed to curl so self-signed HTTPS certs work out of the box.
 
 set -e
 
-API="http://localhost:3001/api"
+API="${API:-http://localhost:3001/api}"
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -16,14 +18,14 @@ header()  { echo; echo "── $* ──"; }
 # POST JSON, return response body
 post() {
   local url="$1" data="$2"
-  curl -sf -X POST -H "Content-Type: application/json" -d "$data" "$url" 2>/dev/null \
+  curl -skf -X POST -H "Content-Type: application/json" -d "$data" "$url" 2>/dev/null \
     || { echo "✗ POST $url failed" >&2; return 1; }
 }
 
 # PUT JSON, return response body
 put() {
   local url="$1" data="$2"
-  curl -sf -X PUT -H "Content-Type: application/json" -d "$data" "$url" 2>/dev/null \
+  curl -skf -X PUT -H "Content-Type: application/json" -d "$data" "$url" 2>/dev/null \
     || { echo "✗ PUT $url failed" >&2; return 1; }
 }
 
@@ -36,13 +38,13 @@ extract_id() {
 
 header "Checking server"
 
-if ! curl -sf "$API/projects" > /dev/null 2>&1; then
+if ! curl -skf "$API/projects" > /dev/null 2>&1; then
   error "Server is not running at $API. Start it first (systemctl --user start network-manager)"
 fi
-success "Server is reachable"
+success "Server is reachable at $API"
 
 # Check if demo project already exists
-EXISTING=$(curl -sf "$API/projects" 2>/dev/null)
+EXISTING=$(curl -skf "$API/projects" 2>/dev/null)
 if echo "$EXISTING" | grep -q '"slug":"home-lab"'; then
   error "Demo project 'home-lab' already exists. Run scripts/clean.sh first or delete it manually."
 fi
@@ -509,6 +511,23 @@ post "$P/timeline" '{
   "event_date": "2025-02-10"
 }' > /dev/null
 success "Timeline: Pi-hole live"
+
+# ── Create agent types ────────────────────────────────────────────────────────
+# Agent types are user-managed per project, so we must create the keys we
+# reference below before creating any agents.
+
+header "Creating agent types"
+
+for at in "wazuh:Wazuh" "zabbix:Zabbix" "prometheus:Prometheus" "elk:ELK"; do
+  IFS=: read -r key label <<< "$at"
+  post "$P/agent-types" "{
+    \"label\": \"$label\",
+    \"key\": \"$key\",
+    \"icon_source\": \"builtin\",
+    \"icon_builtin_key\": \"$key\"
+  }" > /dev/null
+  success "Agent type: $label ($key)"
+done
 
 # ── Create agents ─────────────────────────────────────────────────────────────
 

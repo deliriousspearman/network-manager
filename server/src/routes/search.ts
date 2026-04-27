@@ -11,6 +11,37 @@ interface SearchResult {
   detail: string;
 }
 
+interface DeviceSearchRow {
+  id: number;
+  name: string;
+  type: string | null;
+  os: string | null;
+  primary_ip: string | null;
+}
+
+interface SubnetSearchRow {
+  id: number;
+  name: string;
+  cidr: string;
+  vlan_id: number | null;
+}
+
+interface CredentialSearchRow {
+  id: number;
+  username: string;
+  host: string | null;
+  type: string | null;
+  device_name: string | null;
+}
+
+interface AgentSearchRow {
+  id: number;
+  name: string;
+  agent_type: string | null;
+  version: string | null;
+  device_name: string | null;
+}
+
 router.get('/', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
   const q = ((req.query.q as string) || '').trim();
@@ -33,7 +64,7 @@ router.get('/', asyncHandler((req, res) => {
       OR d.id IN (SELECT device_id FROM device_tags WHERE tag LIKE ?)
     )
     LIMIT ?
-  `).all(projectId, like, like, like, like, like, like, like, limit) as any[];
+  `).all(projectId, like, like, like, like, like, like, like, limit) as DeviceSearchRow[];
 
   for (const d of devices) {
     results.push({
@@ -49,7 +80,7 @@ router.get('/', asyncHandler((req, res) => {
     SELECT id, name, cidr, vlan_id FROM subnets
     WHERE project_id = ? AND (name LIKE ? OR cidr LIKE ? OR CAST(vlan_id AS TEXT) LIKE ? OR description LIKE ?)
     LIMIT ?
-  `).all(projectId, like, like, like, like, limit) as any[];
+  `).all(projectId, like, like, like, like, limit) as SubnetSearchRow[];
 
   for (const s of subnets) {
     results.push({
@@ -67,7 +98,7 @@ router.get('/', asyncHandler((req, res) => {
     FROM credentials c
     WHERE c.project_id = ? AND (c.username LIKE ? OR c.host LIKE ? OR c.type LIKE ? OR c.source LIKE ?)
     LIMIT ?
-  `).all(projectId, like, like, like, like, limit) as any[];
+  `).all(projectId, like, like, like, like, limit) as CredentialSearchRow[];
 
   for (const c of credentials) {
     results.push({
@@ -85,7 +116,7 @@ router.get('/', asyncHandler((req, res) => {
     FROM agents a
     WHERE a.project_id = ? AND (a.name LIKE ? OR a.agent_type LIKE ? OR a.version LIKE ? OR a.notes LIKE ?)
     LIMIT ?
-  `).all(projectId, like, like, like, like, limit) as any[];
+  `).all(projectId, like, like, like, like, limit) as AgentSearchRow[];
 
   for (const a of agents) {
     results.push({

@@ -37,15 +37,20 @@ router.put('/:id', asyncHandler((req, res) => {
     res.status(400).json({ error: 'keyword, category, and color are required' });
     return;
   }
+  const existing = db.prepare('SELECT updated_at FROM highlight_rules WHERE id = ? AND project_id = ?').get(id, projectId) as { updated_at: string } | undefined;
+  if (!existing) { res.status(404).json({ error: 'Not found' }); return; }
+  if (req.body.updated_at && existing.updated_at !== req.body.updated_at) {
+    res.status(409).json({ error: 'This rule was modified by another session. Please refresh and try again.' });
+    return;
+  }
   const validKeyword = keyword.trim().slice(0, 200);
   const validCategory = category.trim().slice(0, 100);
   const validColor = validateColor(color) ?? color.trim().slice(0, 20);
   const validTextColor = validateColor(text_color) ?? optionalString(text_color, 20);
-  const result = db.prepare(
-    'UPDATE highlight_rules SET keyword = ?, category = ?, color = ?, text_color = ? WHERE id = ? AND project_id = ?'
+  db.prepare(
+    "UPDATE highlight_rules SET keyword = ?, category = ?, color = ?, text_color = ?, updated_at = datetime('now') WHERE id = ? AND project_id = ?"
   ).run(validKeyword, validCategory, validColor, validTextColor, id, projectId);
-  if (result.changes === 0) { res.status(404).json({ error: 'Not found' }); return; }
-  const rule = db.prepare('SELECT * FROM highlight_rules WHERE id = ?').get(id);
+  const rule = db.prepare('SELECT * FROM highlight_rules WHERE id = ? AND project_id = ?').get(id, projectId);
   res.json(rule);
 }));
 

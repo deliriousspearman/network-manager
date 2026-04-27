@@ -1,9 +1,8 @@
 import { Router } from 'express';
 import readonlyDb from '../db/readonlyConnection.js';
+import { SQL_QUERY_MAX_ROWS as MAX_ROWS } from '../config/limits.js';
 
 const router = Router({ mergeParams: true });
-
-const MAX_ROWS = 1000;
 
 const DANGEROUS_KEYWORDS = /\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|ATTACH|DETACH|PRAGMA|REPLACE|GRANT|REVOKE|VACUUM)\b/i;
 
@@ -75,15 +74,19 @@ router.post('/', (req, res) => {
   }
 
   try {
-    const stmt = readonlyDb.prepare(sql);
-    const allRows = stmt.all({ projectId });
-    const truncated = allRows.length > MAX_ROWS;
-    const rows = truncated ? allRows.slice(0, MAX_ROWS) : allRows;
-    const columns = rows.length > 0 ? Object.keys(rows[0] as Record<string, unknown>) : [];
+    // Wrap the user query so SQLite stops fetching after MAX_ROWS+1 rather than
+    // materializing the full result set just to slice it. The +1 lets us detect
+    // truncation without a separate COUNT pass.
+    const wrapped = `SELECT * FROM (${sql}) AS user_query LIMIT ${MAX_ROWS + 1}`;
+    const stmt = readonlyDb.prepare(wrapped);
+    const fetched = stmt.all({ projectId }) as Record<string, unknown>[];
+    const truncated = fetched.length > MAX_ROWS;
+    const rows = truncated ? fetched.slice(0, MAX_ROWS) : fetched;
+    const columns = rows.length > 0 ? Object.keys(rows[0]) : [];
 
     res.json({ columns, rows, rowCount: rows.length, truncated });
-  } catch (err: any) {
-    const msg = err.message || '';
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : '';
     // Strip SQLite internals but keep the human-readable part
     const safeMsg = msg.includes(':') ? msg.split(':').pop()!.trim() : 'Query execution failed';
     res.status(400).json({ error: safeMsg || 'Query execution failed' });

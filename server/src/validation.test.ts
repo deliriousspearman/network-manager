@@ -9,6 +9,7 @@ import {
   requireInt,
   validateColor,
   validateMac,
+  validateIpAddress,
   sanitizeFilename,
 } from './validation.js';
 
@@ -223,14 +224,39 @@ describe('validateMac', () => {
     expect(validateMac('AA-BB-CC-DD-EE-FF')).toBe('AA-BB-CC-DD-EE-FF');
   });
 
-  it('allows non-standard formats but limits length', () => {
-    expect(validateMac('something-weird')).toBe('something-weird');
-    const long = 'a'.repeat(100);
-    expect(validateMac(long)).toBe('a'.repeat(50));
+  it('rejects non-standard formats with a ValidationError', () => {
+    expect(() => validateMac('something-weird')).toThrow(/must be formatted/);
+    expect(() => validateMac('a'.repeat(100))).toThrow(/must be formatted/);
   });
 
-  it('returns null for non-string', () => {
-    expect(validateMac(123)).toBeNull();
+  it('throws for non-string inputs', () => {
+    expect(() => validateMac(123)).toThrow(/must be a string/);
+  });
+});
+
+describe('validateIpAddress', () => {
+  it('accepts IPv4 addresses', () => {
+    expect(validateIpAddress('192.168.1.1')).toBe('192.168.1.1');
+    expect(validateIpAddress('10.0.0.0')).toBe('10.0.0.0');
+    expect(validateIpAddress(' 8.8.8.8 ')).toBe('8.8.8.8');
+  });
+
+  it('accepts IPv6 addresses', () => {
+    expect(validateIpAddress('::1')).toBe('::1');
+    expect(validateIpAddress('2001:db8::1')).toBe('2001:db8::1');
+    expect(validateIpAddress('fe80::1%eth0')).toBe('fe80::1%eth0');
+  });
+
+  it('rejects malformed addresses', () => {
+    expect(() => validateIpAddress('999.999.999.999')).toThrow(/not a valid/);
+    expect(() => validateIpAddress('not-an-ip')).toThrow(/not a valid/);
+    expect(() => validateIpAddress('192.168.1.1/24')).toThrow(/not a valid/);
+  });
+
+  it('rejects empty or non-string input', () => {
+    expect(() => validateIpAddress('')).toThrow(/is required/);
+    expect(() => validateIpAddress(null)).toThrow(/is required/);
+    expect(() => validateIpAddress(undefined)).toThrow(/is required/);
   });
 });
 

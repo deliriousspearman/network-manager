@@ -89,7 +89,7 @@ function SearchModalInner({ onClose }: { onClose: () => void }) {
     switch (result.type) {
       case 'device': navigate(`${base}/devices/${result.id}`); break;
       case 'subnet': navigate(`${base}/subnets/${result.id}`); break;
-      case 'credential': navigate(`${base}/credentials`); break;
+      case 'credential': navigate(`${base}/credentials?highlight=${result.id}`); break;
       case 'agent': navigate(`${base}/agents/${result.id}`); break;
     }
   }, [navigate, base, onClose]);

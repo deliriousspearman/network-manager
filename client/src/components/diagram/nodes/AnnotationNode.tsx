@@ -1,7 +1,7 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { memo, useState, useRef, useEffect, useCallback } from 'react';
 import type { NodeProps } from '@xyflow/react';
 
-export default function AnnotationNode({ data }: NodeProps) {
+function AnnotationNode({ data }: NodeProps) {
   const d = data as {
     text: string;
     fontSize: number;
@@ -69,3 +69,5 @@ export default function AnnotationNode({ data }: NodeProps) {
     </div>
   );
 }
+
+export default memo(AnnotationNode);

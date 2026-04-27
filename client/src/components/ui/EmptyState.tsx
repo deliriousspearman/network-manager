@@ -6,6 +6,7 @@ interface EmptyStateProps {
   title?: string;
   description?: string;
   action?: ReactNode;
+  secondaryActions?: ReactNode;
 }
 
 export default function EmptyState({
@@ -13,6 +14,7 @@ export default function EmptyState({
   title = 'No items yet',
   description,
   action,
+  secondaryActions,
 }: EmptyStateProps) {
   return (
     <div className="empty-state">
@@ -22,6 +24,7 @@ export default function EmptyState({
       <h3 className="empty-state-title">{title}</h3>
       {description && <p className="empty-state-description">{description}</p>}
       {action && <div className="empty-state-action">{action}</div>}
+      {secondaryActions && <div className="empty-state-secondary">{secondaryActions}</div>}
     </div>
   );
 }

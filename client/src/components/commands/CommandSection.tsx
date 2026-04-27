@@ -15,6 +15,7 @@ import MountTable from './MountTable';
 import RoutesTable from './RoutesTable';
 import ServicesTable from './ServicesTable';
 import ArpTable from './ArpTable';
+import UserHistoryTable from './UserHistoryTable';
 import DiffModal from './DiffModal';
 
 const COMMAND_LABELS: Record<CommandType, string> = {
@@ -26,7 +27,8 @@ const COMMAND_LABELS: Record<CommandType, string> = {
   arp: 'ARP',
   mount: 'Mount',
   systemctl_status: 'Services',
-  freeform: 'Notes',
+  user_history: 'User History',
+  freeform: 'Other',
 };
 
 const COMMAND_HINTS: Partial<Record<CommandType, string>> = {
@@ -38,6 +40,7 @@ const COMMAND_HINTS: Partial<Record<CommandType, string>> = {
   arp: 'arp -avn',
   mount: 'mount',
   systemctl_status: 'systemctl list-units --type=service',
+  user_history: 'cat ~/.bash_history',
 };
 
 const COMMAND_TYPES = Object.keys(COMMAND_LABELS) as CommandType[];
@@ -100,7 +103,7 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
   const submitMut = useMutation({
     mutationFn: (data: { command_type: CommandType; raw_output: string; title?: string; parse_output?: boolean }) =>
       submitOutput(projectId, deviceId, data),
-    onError: () => toast('Failed to save command output', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to save command output', 'error'),
     onSuccess: (result) => {
       queryClient.invalidateQueries({ queryKey: ['outputs', projectId, deviceId] });
       setSelectedOutputId(result.id);
@@ -120,7 +123,7 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
         setSelectedOutputId(remaining.length > 0 ? remaining[0].id : null);
       }
     },
-    onError: () => toast('Failed to delete command output', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to delete command output', 'error'),
   });
 
   const toggleParseMut = useMutation({
@@ -129,7 +132,7 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
       queryClient.invalidateQueries({ queryKey: ['output', projectId, selectedOutputId] });
       queryClient.invalidateQueries({ queryKey: ['outputs', projectId, deviceId] });
     },
-    onError: () => toast('Failed to toggle parse output', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to toggle parse output', 'error'),
   });
 
   const updateMut = useMutation({
@@ -140,7 +143,7 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
       queryClient.invalidateQueries({ queryKey: ['outputs', projectId, deviceId] });
       setShowEdit(false);
     },
-    onError: () => toast('Failed to update command output', 'error'),
+    onError: (err: Error) => toast(err.message || 'Failed to update command output', 'error'),
   });
 
   function openEdit(output: CommandOutputWithParsed) {
@@ -267,14 +270,14 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
                   onChange={e => setEditCapturedAt(e.target.value)}
                 />
               </div>
-              {viewedOutput.command_type === 'freeform' && (
+              {(viewedOutput.command_type === 'freeform' || viewedOutput.command_type === 'user_history') && (
                 <div className="form-group" style={{ flex: 2, minWidth: '200px', margin: 0 }}>
-                  <label>Title</label>
+                  <label>{viewedOutput.command_type === 'user_history' ? 'User' : 'Title'}</label>
                   <input
                     type="text"
                     value={editTitle}
                     onChange={e => setEditTitle(e.target.value)}
-                    placeholder="e.g. Temporary Notes"
+                    placeholder={viewedOutput.command_type === 'user_history' ? 'e.g. root' : 'e.g. Temporary Notes'}
                   />
                 </div>
               )}
@@ -297,7 +300,7 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
                   data: {
                     raw_output: editRaw,
                     captured_at: editCapturedAt,
-                    ...(viewedOutput.command_type === 'freeform' ? { title: editTitle } : {}),
+                    ...(viewedOutput.command_type === 'freeform' || viewedOutput.command_type === 'user_history' ? { title: editTitle } : {}),
                   },
                 })}
               >
@@ -310,14 +313,14 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
 
         {showForm && (
           <div style={{ marginBottom: '1rem', paddingBottom: '1rem', borderBottom: '1px solid var(--color-border)' }}>
-            {activeTab === 'freeform' && (
+            {(activeTab === 'freeform' || activeTab === 'user_history') && (
               <div className="form-group">
-                <label>Title</label>
+                <label>{activeTab === 'user_history' ? 'User' : 'Title'}</label>
                 <input
                   type="text"
                   value={noteTitle}
                   onChange={e => setNoteTitle(e.target.value)}
-                  placeholder="e.g. Temporary Notes"
+                  placeholder={activeTab === 'user_history' ? 'e.g. root' : 'e.g. Temporary Notes'}
                 />
               </div>
             )}
@@ -345,10 +348,10 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
               onClick={() => submitMut.mutate({
                 command_type: activeTab,
                 raw_output: rawInput,
-                ...(activeTab === 'freeform' && noteTitle.trim() ? { title: noteTitle.trim() } : {}),
+                ...((activeTab === 'freeform' || activeTab === 'user_history') && noteTitle.trim() ? { title: noteTitle.trim() } : {}),
                 ...(activeTab !== 'freeform' ? { parse_output: parseOutput } : {}),
               })}
-              disabled={!rawInput.trim() || submitMut.isPending}
+              disabled={!rawInput.trim() || (activeTab === 'user_history' && !noteTitle.trim()) || submitMut.isPending}
             >
               {submitMut.isPending ? 'Submitting...' : 'Submit'}
             </button>
@@ -373,6 +376,21 @@ export default function CommandSection({ deviceId }: { deviceId: number }) {
             )}
             {viewedOutput.parse_output ? (
               <>
+                {viewedOutput.parsed_truncated && viewedOutput.parsed_total != null && (
+                  <div
+                    style={{
+                      marginBottom: '0.75rem',
+                      padding: '0.5rem 0.75rem',
+                      borderRadius: '6px',
+                      background: 'var(--color-warning-bg, var(--color-bg))',
+                      border: '1px solid var(--color-warning, var(--color-border))',
+                      fontSize: '0.8rem',
+                    }}
+                  >
+                    Showing first {(viewedOutput.parsed_limit ?? 0).toLocaleString()} of {viewedOutput.parsed_total.toLocaleString()} parsed rows.
+                    Refine the source command or look at the raw output below for the rest.
+                  </div>
+                )}
                 {renderParsedData(viewedOutput, rules)}
                 <details style={{ marginTop: '1rem' }}>
                   <summary style={{ cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-secondary)' }}>
@@ -416,6 +434,8 @@ function renderParsedData(output: CommandOutputWithParsed, rules: HighlightRule[
       return <ServicesTable services={output.parsed_services || []} rules={rules} />;
     case 'arp':
       return <ArpTable entries={output.parsed_arp || []} rules={rules} />;
+    case 'user_history':
+      return <UserHistoryTable entries={output.parsed_user_history || []} rules={rules} />;
     case 'freeform':
       return (
         <pre style={{ padding: '0.75rem', background: 'var(--color-bg)', borderRadius: '6px', fontSize: '0.8rem', overflow: 'auto', whiteSpace: 'pre-wrap' }}>

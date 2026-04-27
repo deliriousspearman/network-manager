@@ -1,57 +1,50 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
+import { pagedResponse } from '../utils/pagination.js';
+import { buildListQuery } from '../utils/listQuery.js';
 
 const router = Router({ mergeParams: true });
 
 router.get('/', (req, res) => {
   const projectId = res.locals.projectId;
-  const search = ((req.query.search as string) || '').trim();
-  const resourceType = ((req.query.resource_type as string) || '').trim();
-  const action = ((req.query.action as string) || '').trim();
 
-  let filterClause = '';
-  const filterParams: any[] = [];
-  if (search) {
-    const like = `%${search}%`;
-    filterClause += ` AND (a.resource_name LIKE ? OR a.details LIKE ?)`;
-    filterParams.push(like, like);
-  }
-  if (resourceType) {
-    filterClause += ` AND a.resource_type = ?`;
-    filterParams.push(resourceType);
-  }
-  if (action) {
-    filterClause += ` AND a.action = ?`;
-    filterParams.push(action);
-  }
+  const { whereClause, whereParams, orderBy, pagination } = buildListQuery(req, {
+    projectId,
+    projectColumn: 'a.project_id',
+    search: { columns: ['a.resource_name', 'a.details'] },
+    filters: {
+      resource_type: { column: 'a.resource_type', type: 'string' },
+      action: { column: 'a.action', type: 'string' },
+      resource_id: { column: 'a.resource_id', type: 'int' },
+      since: { column: 'a.created_at', type: 'datetime', operator: '>=' },
+      // valueSuffix makes 12:00 cover 12:00:00–12:00:59 (datetime-local has no seconds).
+      until: { column: 'a.created_at', type: 'datetime', operator: '<=', valueSuffix: ':59' },
+    },
+    sort: { map: {}, default: 'a.created_at', defaultDir: 'desc' },
+    pagination: { maxLimit: 500 },
+  });
 
-  const where = `WHERE a.project_id = ?${filterClause}`;
-  const baseParams = [projectId, ...filterParams];
-
-  if (req.query.page !== undefined) {
-    const page = Math.max(1, parseInt(req.query.page as string) || 1);
-    const limit = Math.min(500, Math.max(1, parseInt(req.query.limit as string) || 50));
-    const offset = (page - 1) * limit;
-    const { total } = db.prepare(`SELECT COUNT(*) as total FROM activity_logs a ${where}`).get(...baseParams) as { total: number };
+  if (pagination) {
+    const { page, limit, offset } = pagination;
+    const { total } = db.prepare(`SELECT COUNT(*) as total FROM activity_logs a ${whereClause}`).get(...whereParams) as { total: number };
     const items = db.prepare(
       `SELECT a.*, p.name AS project_name
        FROM activity_logs a
        LEFT JOIN projects p ON a.project_id = p.id
-       ${where}
-       ORDER BY a.created_at DESC
+       ${whereClause}
+       ${orderBy}
        LIMIT ? OFFSET ?`
-    ).all(...baseParams, limit, offset);
-    return res.json({ items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
+    ).all(...whereParams, limit, offset) as unknown[];
+    return res.json(pagedResponse(items, total, page, limit));
   }
 
-  // Legacy: return full array
   const logs = db.prepare(
     `SELECT a.*, p.name AS project_name
      FROM activity_logs a
      LEFT JOIN projects p ON a.project_id = p.id
-     ${where}
-     ORDER BY a.created_at DESC`
-  ).all(...baseParams);
+     ${whereClause}
+     ${orderBy}`
+  ).all(...whereParams);
   res.json(logs);
 });
 

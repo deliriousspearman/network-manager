@@ -1,7 +1,9 @@
 import { Router } from 'express';
 import db from '../db/connection.js';
 import { logActivity } from '../db/activityLog.js';
-import { ValidationError, requireString, optionalString, optionalOneOf } from '../validation.js';
+import { requireString, optionalString, optionalOneOf } from '../validation.js';
+import { asyncHandler } from '../middleware/asyncHandler.js';
+import { parsePagination, pagedResponse } from '../utils/pagination.js';
 
 const router = Router({ mergeParams: true });
 
@@ -16,7 +18,7 @@ function validateEventDate(val: unknown): string | null {
   return val;
 }
 
-router.get('/', (req, res) => {
+router.get('/', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
   const category = ((req.query.category as string) || '').trim();
   const from = ((req.query.from as string) || '').trim();
@@ -46,9 +48,7 @@ router.get('/', (req, res) => {
   const where = `WHERE project_id = ?${filterClause}`;
   const baseParams = [projectId, ...filterParams];
 
-  const page = Math.max(1, parseInt(req.query.page as string) || 1);
-  const limit = Math.min(200, Math.max(1, parseInt(req.query.limit as string) || 50));
-  const offset = (page - 1) * limit;
+  const { page, limit, offset } = parsePagination(req);
 
   const { total } = db.prepare(
     `SELECT COUNT(*) as total FROM timeline_entries ${where}`
@@ -56,27 +56,59 @@ router.get('/', (req, res) => {
 
   const items = db.prepare(
     `SELECT * FROM timeline_entries ${where} ORDER BY event_date DESC, created_at DESC LIMIT ? OFFSET ?`
-  ).all(...baseParams, limit, offset);
+  ).all(...baseParams, limit, offset) as unknown[];
 
-  res.json({ items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) });
-});
+  res.json(pagedResponse(items, total, page, limit));
+}));
 
-router.get('/:id', (req, res) => {
+// Lightweight projection used by the timeline axis overview: no pagination,
+// no description field, just the minimum needed to place a dot on the axis.
+router.get('/summary', asyncHandler((req, res) => {
+  const projectId = res.locals.projectId;
+  const category = ((req.query.category as string) || '').trim();
+  const from = ((req.query.from as string) || '').trim();
+  const to = ((req.query.to as string) || '').trim();
+  const search = ((req.query.search as string) || '').trim();
+
+  let filterClause = '';
+  const filterParams: unknown[] = [];
+  if (category && (VALID_CATEGORIES as readonly string[]).includes(category)) {
+    filterClause += ' AND category = ?';
+    filterParams.push(category);
+  }
+  if (from) {
+    filterClause += ' AND event_date >= ?';
+    filterParams.push(from);
+  }
+  if (to) {
+    filterClause += ' AND event_date <= ?';
+    filterParams.push(to + 'T23:59:59');
+  }
+  if (search) {
+    const like = `%${search}%`;
+    filterClause += ' AND (title LIKE ? OR description LIKE ?)';
+    filterParams.push(like, like);
+  }
+
+  const rows = db.prepare(
+    `SELECT id, event_date, category, title FROM timeline_entries
+     WHERE project_id = ?${filterClause}
+     ORDER BY event_date ASC`
+  ).all(projectId, ...filterParams);
+
+  res.json(rows);
+}));
+
+router.get('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
   const entry = db.prepare('SELECT * FROM timeline_entries WHERE id = ? AND project_id = ?').get(req.params.id, projectId);
   if (!entry) return res.status(404).json({ error: 'Timeline entry not found' });
   res.json(entry);
-});
+}));
 
-router.post('/', (req, res) => {
+router.post('/', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
-  let title: string;
-  try {
-    title = requireString(req.body.title, 'title', 200);
-  } catch (e) {
-    if (e instanceof ValidationError) return res.status(400).json({ error: e.message });
-    throw e;
-  }
+  const title = requireString(req.body.title, 'title', 200);
   const description = optionalString(req.body.description, 5000);
   const category = optionalOneOf(req.body.category, [...VALID_CATEGORIES]) || 'general';
   const eventDate = validateEventDate(req.body.event_date);
@@ -89,17 +121,11 @@ router.post('/', (req, res) => {
   const entry = db.prepare('SELECT * FROM timeline_entries WHERE id = ?').get(result.lastInsertRowid);
   logActivity({ projectId, action: 'created', resourceType: 'timeline_entry', resourceId: result.lastInsertRowid as number, resourceName: title });
   res.status(201).json(entry);
-});
+}));
 
-router.put('/:id', (req, res) => {
+router.put('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
-  let title: string;
-  try {
-    title = requireString(req.body.title, 'title', 200);
-  } catch (e) {
-    if (e instanceof ValidationError) return res.status(400).json({ error: e.message });
-    throw e;
-  }
+  const title = requireString(req.body.title, 'title', 200);
 
   if (req.body.updated_at) {
     const existing = db.prepare('SELECT updated_at FROM timeline_entries WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { updated_at: string } | undefined;
@@ -122,15 +148,66 @@ router.put('/:id', (req, res) => {
   const entry = db.prepare('SELECT * FROM timeline_entries WHERE id = ?').get(req.params.id);
   logActivity({ projectId, action: 'updated', resourceType: 'timeline_entry', resourceId: Number(req.params.id), resourceName: title });
   res.json(entry);
+}));
+
+// Snapshot + DELETE + activity log in one transaction. Throws 'NOT_FOUND'
+// if the entry doesn't exist in this project. Returns the log id (or null
+// if logActivity failed) so the single-DELETE handler can echo it back.
+const deleteTimelineRow = db.transaction((entryId: number, projectId: number) => {
+  const entry = db.prepare('SELECT * FROM timeline_entries WHERE id = ? AND project_id = ?').get(entryId, projectId) as Record<string, unknown> | undefined;
+  if (!entry) throw new Error('NOT_FOUND');
+  db.prepare('DELETE FROM timeline_entries WHERE id = ? AND project_id = ?').run(entryId, projectId);
+  const logId = logActivity({
+    projectId, action: 'deleted', resourceType: 'timeline_entry',
+    resourceId: entryId, resourceName: entry.title as string,
+    previousState: { entry },
+    canUndo: true,
+  });
+  return { entry, logId };
 });
 
-router.delete('/:id', (req, res) => {
+router.delete('/:id', asyncHandler((req, res) => {
   const projectId = res.locals.projectId;
-  const existing = db.prepare('SELECT title FROM timeline_entries WHERE id = ? AND project_id = ?').get(req.params.id, projectId) as { title: string } | undefined;
-  if (!existing) return res.status(404).json({ error: 'Timeline entry not found' });
-  db.prepare('DELETE FROM timeline_entries WHERE id = ? AND project_id = ?').run(req.params.id, projectId);
-  logActivity({ projectId, action: 'deleted', resourceType: 'timeline_entry', resourceId: Number(req.params.id), resourceName: existing.title });
-  res.status(204).send();
-});
+  try {
+    const { logId } = deleteTimelineRow(Number(req.params.id), projectId);
+    res.json({ log_id: logId });
+  } catch (err) {
+    // Idempotent: a missing row means another tab already deleted it.
+    if (err instanceof Error && err.message === 'NOT_FOUND') {
+      return res.json({ log_id: null });
+    }
+    throw err;
+  }
+}));
+
+const TIMELINE_BULK_MAX_IDS = 500;
+
+router.post('/bulk-delete', asyncHandler((req, res) => {
+  const projectId = res.locals.projectId;
+  const body = req.body as { ids?: unknown };
+  if (!Array.isArray(body.ids) || body.ids.length === 0) {
+    return res.status(400).json({ error: 'ids must be a non-empty array' });
+  }
+  if (body.ids.length > TIMELINE_BULK_MAX_IDS) {
+    return res.status(400).json({ error: `Cannot delete more than ${TIMELINE_BULK_MAX_IDS} entries at once` });
+  }
+  const ids = body.ids.map(v => Number(v));
+  if (ids.some(n => !Number.isFinite(n) || n <= 0 || !Number.isInteger(n))) {
+    return res.status(400).json({ error: 'ids must be positive integers' });
+  }
+
+  const deleted: number[] = [];
+  const failed: { id: number; error: string }[] = [];
+  for (const id of ids) {
+    try {
+      deleteTimelineRow(id, projectId);
+      deleted.push(id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      failed.push({ id, error: msg === 'NOT_FOUND' ? 'Not found' : msg });
+    }
+  }
+  res.json({ deleted, failed });
+}));
 
 export default router;
